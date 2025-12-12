@@ -1,0 +1,26 @@
+# Credentials - DO NOT COMMIT
+credentials.json
+token.pickle
+*.pickle
+
+# Virtual environment
+venv/
+.venv/
+
+# Generated reports
+*.csv
+*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Streamlit
+.streamlit/secrets.toml
+
