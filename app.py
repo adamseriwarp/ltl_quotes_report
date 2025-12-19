@@ -170,7 +170,7 @@ def main():
     # Apply styling with alternating week colors
     def style_table(df):
         styles = pd.DataFrame('', index=df.index, columns=df.columns)
-        colors = ['background-color: #C6EFCE', 'background-color: #F2F2F2']
+        colors = ['background-color: #F2F2F2', 'background-color: #FFFFFF']
 
         for i, week in enumerate(weeks):
             color = colors[i % 2]
@@ -179,7 +179,7 @@ def main():
                     styles[(str(week), sub_col)] = color
 
         # Bold the TOTAL row
-        styles.iloc[0] = 'background-color: #C6EFCE; font-weight: bold'
+        styles.iloc[0] = 'background-color: #D9D9D9; font-weight: bold'
         return styles
 
     styled_df = display_df.style.apply(lambda _: style_table(display_df), axis=None)
@@ -244,7 +244,7 @@ def main():
         # Apply styling with alternating week colors
         def style_lanes_table(df):
             styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            colors = ['background-color: #C6EFCE', 'background-color: #F2F2F2']
+            colors = ['background-color: #F2F2F2', 'background-color: #FFFFFF']
 
             for i, week in enumerate(lanes_weeks):
                 color = colors[i % 2]
@@ -312,7 +312,7 @@ def main():
         # Apply styling with alternating week colors
         def style_regions_table(df):
             styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            colors = ['background-color: #C6EFCE', 'background-color: #F2F2F2']
+            colors = ['background-color: #F2F2F2', 'background-color: #FFFFFF']
 
             for i, week in enumerate(regions_weeks):
                 color = colors[i % 2]
