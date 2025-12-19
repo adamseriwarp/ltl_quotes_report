@@ -10,11 +10,7 @@ st.markdown('<div style="background-color: #4472C4; color: white; padding: 15px;
 
 try:
     import pandas as pd
-    import geopandas as gpd
     import numpy as np
-    import os
-    import zipfile
-    import urllib.request
     from shapely.strtree import STRtree
     from drive_client import DriveClient
     from report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
@@ -23,44 +19,21 @@ except Exception as e:
     st.error(f"Import error: {e}")
     st.stop()
 
-SHAPEFILE_URL = "https://www2.census.gov/geo/tiger/TIGER2020/ZCTA520/tl_2020_us_zcta520.zip"
-SHAPEFILE_NAME = "tl_2020_us_zcta520.shp"
+CENTROIDS_FILE = "zip_centroids.csv"
 
 @st.cache_resource
 def get_drive_client():
     """Cache the Drive client connection."""
     return DriveClient()
 
-def download_shapefile():
-    """Download and extract the ZCTA shapefile from Census Bureau."""
-    zip_path = "tl_2020_us_zcta520.zip"
-
-    print(f"Downloading shapefile from Census Bureau...")
-    urllib.request.urlretrieve(SHAPEFILE_URL, zip_path)
-
-    print("Extracting shapefile...")
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(".")
-
-    # Clean up zip file
-    os.remove(zip_path)
-    print("Shapefile downloaded and extracted.")
-
 @st.cache_resource
-def load_shapefile():
-    """Load and cache the ZIP code shapefile. Downloads if not present."""
-    # Check if shapefile exists, download if not
-    if not os.path.exists(SHAPEFILE_NAME):
-        download_shapefile()
-
-    print("Loading ZIP code shapefile...")
-    gdf = gpd.read_file(SHAPEFILE_NAME)
-    # Ensure we're using a projected CRS for distance calculations (US National Atlas Equal Area)
-    gdf = gdf.to_crs(epsg=2163)
-    # Create centroids
-    gdf['centroid'] = gdf.geometry.centroid
-    print(f"Loaded {len(gdf)} ZIP code areas")
-    return gdf
+def load_zip_centroids():
+    """Load pre-computed ZIP code centroids."""
+    print("Loading ZIP code centroids...")
+    df = pd.read_csv(CENTROIDS_FILE, dtype={'zip_code': str})
+    df.set_index('zip_code', inplace=True)
+    print(f"Loaded {len(df)} ZIP code centroids")
+    return df
 
 @st.cache_data(ttl=300)
 def load_quotes_data(_client, selected_weeks: tuple) -> pd.DataFrame:
@@ -110,9 +83,10 @@ def get_available_weeks(client) -> list[int]:
             weeks.append(int(match.group(1)))
     return sorted(set(weeks))
 
-def analyze_expansion_opportunities(df: pd.DataFrame, gdf: gpd.GeoDataFrame,
+def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame,
                                      zip_mapping: dict, region_mapping: dict) -> pd.DataFrame:
     """Analyze unserviced zip codes for expansion opportunities."""
+    from shapely.geometry import Point
 
     # Identify rated vs unrated quotes
     df['is_rated'] = df['rate'].notna() & (df['rate'].astype(str).str.strip() != '')
@@ -148,15 +122,13 @@ def analyze_expansion_opportunities(df: pd.DataFrame, gdf: gpd.GeoDataFrame,
         for z, c in zip_counts.items()
     ])
 
-    # Calculate distance to nearest serviced zip using shapefile with spatial index
-    gdf_lookup = gdf.set_index(gdf['ZCTA5CE20'].astype(str))
-
-    # Get centroids of serviced zips and build spatial index
+    # Build list of serviced centroids from CSV
     serviced_centroids = []
-    serviced_zip_list = []  # Keep track of which ZIP each centroid belongs to
+    serviced_zip_list = []
     for z in serviced_zips:
-        if z in gdf_lookup.index:
-            serviced_centroids.append(gdf_lookup.loc[z, 'centroid'])
+        if z in centroids_df.index:
+            row = centroids_df.loc[z]
+            serviced_centroids.append(Point(row['centroid_x'], row['centroid_y']))
             serviced_zip_list.append(z)
 
     if serviced_centroids:
@@ -165,29 +137,25 @@ def analyze_expansion_opportunities(df: pd.DataFrame, gdf: gpd.GeoDataFrame,
 
         distances = []
         nearest_zips = []
-        nearest_airports = []
         for zip_code in results['zip_code']:
-            if zip_code in gdf_lookup.index:
-                unserviced_centroid = gdf_lookup.loc[zip_code, 'centroid']
+            if zip_code in centroids_df.index:
+                row = centroids_df.loc[zip_code]
+                unserviced_centroid = Point(row['centroid_x'], row['centroid_y'])
                 # Find nearest serviced centroid using spatial index
                 nearest_idx = tree.nearest(unserviced_centroid)
                 min_dist = unserviced_centroid.distance(serviced_centroids[nearest_idx])
                 nearest_zip = serviced_zip_list[nearest_idx]
-                # Convert from meters to km (EPSG:2163 uses meters)
+                # Convert from meters to km (coordinates are in EPSG:2163 meters)
                 distances.append(min_dist / 1000)
                 nearest_zips.append(nearest_zip)
-                nearest_airports.append(get_airport_code(nearest_zip, zip_mapping))
             else:
                 distances.append(np.nan)
                 nearest_zips.append(None)
-                nearest_airports.append(None)
         results['distance_km'] = distances
         results['nearest_serviced_zip'] = nearest_zips
-        results['nearest_serviced_airport'] = nearest_airports
     else:
         results['distance_km'] = np.nan
         results['nearest_serviced_zip'] = None
-        results['nearest_serviced_airport'] = None
 
     # Add airport code and region
     results['airport_code'] = results['zip_code'].apply(lambda x: get_airport_code(x, zip_mapping))
@@ -243,12 +211,12 @@ def main():
         st.info("👈 Adjust filters in the sidebar and click **Run Analysis** to start.")
         return
 
-    # Load shapefile
-    with st.spinner("Loading ZIP code shapefile..."):
+    # Load ZIP centroids
+    with st.spinner("Loading ZIP code centroids..."):
         try:
-            gdf = load_shapefile()
+            centroids_df = load_zip_centroids()
         except Exception as e:
-            st.error(f"Failed to load shapefile: {e}")
+            st.error(f"Failed to load ZIP centroids: {e}")
             return
 
     # Load data
@@ -270,7 +238,7 @@ def main():
     # Analyze
     with st.spinner("Analyzing expansion opportunities..."):
         try:
-            results, serviced_zips = analyze_expansion_opportunities(quotes_df, gdf, zip_mapping, region_mapping)
+            results, serviced_zips = analyze_expansion_opportunities(quotes_df, centroids_df, zip_mapping, region_mapping)
         except Exception as e:
             import traceback
             st.error(f"Analysis failed: {e}")
