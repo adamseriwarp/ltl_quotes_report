@@ -8,8 +8,13 @@ venv/
 .venv/
 
 # Generated reports
-*.csv
 *.xlsx
+ltl_report_*.csv
+2025-*.csv
+
+# Keep mapping files (don't ignore them)
+!zip_to_airport_code*.csv
+!airport_code_to_region*.csv
 
 # Python
 __pycache__/
