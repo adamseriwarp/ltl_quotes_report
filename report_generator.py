@@ -54,8 +54,27 @@ def get_all_2025_folders(client: DriveClient) -> list[dict]:
     return sorted(week_folders, key=lambda x: x['week'])
 
 
+# Global cache for loaded CSV data (shared across report generators)
+_csv_cache: dict[str, pd.DataFrame] = {}
+
+
+def clear_csv_cache():
+    """Clear the CSV data cache."""
+    global _csv_cache
+    _csv_cache = {}
+
+
 def load_csvs_from_folder(client: DriveClient, folder_id: str, folder_name: str) -> pd.DataFrame:
-    """Load all CSVs from a folder and combine into a single DataFrame."""
+    """Load all CSVs from a folder and combine into a single DataFrame.
+    Uses in-memory caching to avoid re-downloading the same data for different reports.
+    """
+    global _csv_cache
+
+    # Check cache first
+    if folder_id in _csv_cache:
+        print(f"  Using cached data for {folder_name} ({len(_csv_cache[folder_id]):,} quotes)")
+        return _csv_cache[folder_id]
+
     files = client.list_files_in_folder(folder_id, file_type='csv')
 
     all_data = []
@@ -67,10 +86,14 @@ def load_csvs_from_folder(client: DriveClient, folder_id: str, folder_name: str)
             all_data.append(df)
 
     if not all_data:
+        _csv_cache[folder_id] = pd.DataFrame()
         return pd.DataFrame()
 
     combined = pd.concat(all_data, ignore_index=True)
     print(f"  Loaded {len(combined):,} quotes from {len(files)} files in {folder_name}")
+
+    # Cache the result
+    _csv_cache[folder_id] = combined
     return combined
 
 

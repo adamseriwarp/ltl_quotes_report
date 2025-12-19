@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from drive_client import DriveClient
-from report_generator import generate_report, generate_lanes_report, generate_regions_report
+from report_generator import generate_report, generate_lanes_report, generate_regions_report, clear_csv_cache
 
 st.set_page_config(
     page_title="WARP Freight Quotes Report",
@@ -104,6 +104,7 @@ def main():
     # Load data button
     if st.sidebar.button("🔄 Refresh Data", type="primary"):
         st.cache_data.clear()
+        clear_csv_cache()  # Also clear the in-memory CSV cache
         st.rerun()
 
     # Load report
