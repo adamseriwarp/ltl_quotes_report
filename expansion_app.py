@@ -84,12 +84,24 @@ def get_available_weeks(client) -> list[int]:
     return sorted(set(weeks))
 
 def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame,
-                                     zip_mapping: dict, region_mapping: dict) -> pd.DataFrame:
-    """Analyze unserviced zip codes for expansion opportunities."""
+                                     zip_mapping: dict, region_mapping: dict) -> tuple:
+    """Analyze unserviced zip codes for expansion opportunities.
+
+    Returns: (results_df, serviced_zips, total_quotes_by_airport, total_quotes_by_region)
+    """
     from shapely.geometry import Point
 
     # Identify rated vs unrated quotes
     df['is_rated'] = df['rate'].notna() & (df['rate'].astype(str).str.strip() != '')
+
+    # Calculate total quotes by airport code and region (for percentage calculation)
+    # We look at pickup zip to determine airport/region for each quote
+    df['pickup_zip_clean'] = df['pickup Zip'].astype(str).str.strip().str[:5]
+    df['pickup_airport'] = df['pickup_zip_clean'].apply(lambda x: get_airport_code(x, zip_mapping))
+    df['pickup_region'] = df['pickup_airport'].apply(lambda x: get_region(x, region_mapping))
+
+    total_quotes_by_airport = df.groupby('pickup_airport').size().to_dict()
+    total_quotes_by_region = df.groupby('pickup_region').size().to_dict()
 
     # Get all unique zip codes from rated quotes (these are "serviced")
     rated_df = df[df['is_rated']]
@@ -102,7 +114,7 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
     unrated_df = df[~df['is_rated']]
 
     if unrated_df.empty:
-        return pd.DataFrame(), serviced_zips
+        return pd.DataFrame(), serviced_zips, total_quotes_by_airport, total_quotes_by_region
 
     # Count quotes per zip (combining origin and destination)
     zip_counts = {}
@@ -164,7 +176,7 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
     # Sort by quote count descending
     results = results.sort_values('quote_count', ascending=False)
 
-    return results, serviced_zips
+    return results, serviced_zips, total_quotes_by_airport, total_quotes_by_region
 
 def main():
     st.sidebar.header("🔧 Analysis Options")
@@ -238,7 +250,7 @@ def main():
     # Analyze
     with st.spinner("Analyzing expansion opportunities..."):
         try:
-            results, serviced_zips = analyze_expansion_opportunities(quotes_df, centroids_df, zip_mapping, region_mapping)
+            results, serviced_zips, total_quotes_by_airport, total_quotes_by_region = analyze_expansion_opportunities(quotes_df, centroids_df, zip_mapping, region_mapping)
         except Exception as e:
             import traceback
             st.error(f"Analysis failed: {e}")
@@ -292,6 +304,23 @@ def main():
             mime="text/csv"
         )
 
+        # Summary by airport code
+        st.subheader("📈 Summary by Airport Code")
+        airport_summary = filtered.groupby('airport_code').agg({
+            'zip_code': 'count',
+            'quote_count': 'sum',
+            'distance_km': 'mean'
+        }).reset_index()
+        airport_summary.columns = ['Airport Code', 'ZIP Count', 'Unserviced Quotes', 'Avg Distance (km)']
+        # Add total quotes and % not serviced
+        airport_summary['Total Quotes'] = airport_summary['Airport Code'].map(total_quotes_by_airport).fillna(0).astype(int)
+        airport_summary['% Not Serviced'] = (airport_summary['Unserviced Quotes'] / airport_summary['Total Quotes'] * 100).round(1)
+        airport_summary = airport_summary.sort_values('Unserviced Quotes', ascending=False)
+        airport_summary['Avg Distance (km)'] = airport_summary['Avg Distance (km)'].round(1)
+        # Reorder columns
+        airport_summary = airport_summary[['Airport Code', 'ZIP Count', 'Unserviced Quotes', 'Total Quotes', '% Not Serviced', 'Avg Distance (km)']]
+        st.dataframe(airport_summary, use_container_width=True, hide_index=True)
+
         # Summary by region
         st.subheader("📈 Summary by Region")
         region_summary = filtered.groupby('region').agg({
@@ -299,9 +328,14 @@ def main():
             'quote_count': 'sum',
             'distance_km': 'mean'
         }).reset_index()
-        region_summary.columns = ['Region', 'ZIP Count', 'Total Quotes', 'Avg Distance (km)']
-        region_summary = region_summary.sort_values('Total Quotes', ascending=False)
+        region_summary.columns = ['Region', 'ZIP Count', 'Unserviced Quotes', 'Avg Distance (km)']
+        # Add total quotes and % not serviced
+        region_summary['Total Quotes'] = region_summary['Region'].map(total_quotes_by_region).fillna(0).astype(int)
+        region_summary['% Not Serviced'] = (region_summary['Unserviced Quotes'] / region_summary['Total Quotes'] * 100).round(1)
+        region_summary = region_summary.sort_values('Unserviced Quotes', ascending=False)
         region_summary['Avg Distance (km)'] = region_summary['Avg Distance (km)'].round(1)
+        # Reorder columns
+        region_summary = region_summary[['Region', 'ZIP Count', 'Unserviced Quotes', 'Total Quotes', '% Not Serviced', 'Avg Distance (km)']]
         st.dataframe(region_summary, use_container_width=True, hide_index=True)
     else:
         st.info("No ZIP codes match the current filters. Try adjusting the minimum quote count or maximum distance.")
