@@ -157,16 +157,16 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
                 nearest_idx = tree.nearest(unserviced_centroid)
                 min_dist = unserviced_centroid.distance(serviced_centroids[nearest_idx])
                 nearest_zip = serviced_zip_list[nearest_idx]
-                # Convert from meters to km (coordinates are in EPSG:2163 meters)
-                distances.append(min_dist / 1000)
+                # Convert from meters to miles (coordinates are in EPSG:2163 meters)
+                distances.append(min_dist / 1609.34)
                 nearest_zips.append(nearest_zip)
             else:
                 distances.append(np.nan)
                 nearest_zips.append(None)
-        results['distance_km'] = distances
+        results['distance_miles'] = distances
         results['nearest_serviced_zip'] = nearest_zips
     else:
-        results['distance_km'] = np.nan
+        results['distance_miles'] = np.nan
         results['nearest_serviced_zip'] = None
 
     # Add airport code and region
@@ -215,8 +215,8 @@ def main():
     # Filter controls
     st.sidebar.subheader("🎯 Filters")
     min_quotes = st.sidebar.slider("Minimum Quote Count:", min_value=1, max_value=500, value=10)
-    max_distance = st.sidebar.slider("Maximum Distance to Serviced ZIP (km):",
-                                      min_value=1, max_value=500, value=100)
+    max_distance = st.sidebar.slider("Maximum Distance to Serviced ZIP (miles):",
+                                      min_value=1, max_value=300, value=60)
 
     # Run Analysis button
     if not st.sidebar.button("🚀 Run Analysis", type="primary"):
@@ -264,8 +264,8 @@ def main():
     # Apply filters
     filtered = results[
         (results['quote_count'] >= min_quotes) &
-        (results['distance_km'].notna()) &
-        (results['distance_km'] <= max_distance)
+        (results['distance_miles'].notna()) &
+        (results['distance_miles'] <= max_distance)
     ].copy()
 
     # Display metrics
@@ -278,9 +278,9 @@ def main():
         st.metric("Total Unrated Quotes", results['quote_count'].sum())
     with col4:
         if not filtered.empty:
-            st.metric("Avg Distance (km)", f"{filtered['distance_km'].mean():.1f}")
+            st.metric("Avg Distance (mi)", f"{filtered['distance_miles'].mean():.1f}")
         else:
-            st.metric("Avg Distance (km)", "N/A")
+            st.metric("Avg Distance (mi)", "N/A")
 
     st.markdown("---")
 
@@ -289,9 +289,9 @@ def main():
         st.subheader(f"📊 Top Expansion Opportunities ({len(filtered)} ZIP codes)")
 
         # Format for display
-        display_df = filtered[['zip_code', 'quote_count', 'nearest_serviced_zip', 'distance_km', 'airport_code', 'region']].copy()
-        display_df.columns = ['ZIP Code', 'Quote Count', 'Nearest Serviced ZIP', 'Distance (km)', 'Airport Code', 'Region']
-        display_df['Distance (km)'] = display_df['Distance (km)'].round(1)
+        display_df = filtered[['zip_code', 'quote_count', 'nearest_serviced_zip', 'distance_miles', 'airport_code', 'region']].copy()
+        display_df.columns = ['ZIP Code', 'Quote Count', 'Nearest Serviced ZIP', 'Distance (mi)', 'Airport Code', 'Region']
+        display_df['Distance (mi)'] = display_df['Distance (mi)'].round(1)
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
@@ -309,16 +309,16 @@ def main():
         airport_summary = filtered.groupby('airport_code').agg({
             'zip_code': 'count',
             'quote_count': 'sum',
-            'distance_km': 'mean'
+            'distance_miles': 'mean'
         }).reset_index()
-        airport_summary.columns = ['Airport Code', 'ZIP Count', 'Unserviced Quotes', 'Avg Distance (km)']
+        airport_summary.columns = ['Airport Code', 'ZIP Count', 'Unserviced Quotes', 'Avg Distance (mi)']
         # Add total quotes and % not serviced
         airport_summary['Total Quotes'] = airport_summary['Airport Code'].map(total_quotes_by_airport).fillna(0).astype(int)
         airport_summary['% Not Serviced'] = (airport_summary['Unserviced Quotes'] / airport_summary['Total Quotes'] * 100).round(1)
         airport_summary = airport_summary.sort_values('Unserviced Quotes', ascending=False)
-        airport_summary['Avg Distance (km)'] = airport_summary['Avg Distance (km)'].round(1)
+        airport_summary['Avg Distance (mi)'] = airport_summary['Avg Distance (mi)'].round(1)
         # Reorder columns
-        airport_summary = airport_summary[['Airport Code', 'ZIP Count', 'Unserviced Quotes', 'Total Quotes', '% Not Serviced', 'Avg Distance (km)']]
+        airport_summary = airport_summary[['Airport Code', 'ZIP Count', 'Unserviced Quotes', 'Total Quotes', '% Not Serviced', 'Avg Distance (mi)']]
         st.dataframe(airport_summary, use_container_width=True, hide_index=True)
 
         # Summary by region
@@ -326,16 +326,16 @@ def main():
         region_summary = filtered.groupby('region').agg({
             'zip_code': 'count',
             'quote_count': 'sum',
-            'distance_km': 'mean'
+            'distance_miles': 'mean'
         }).reset_index()
-        region_summary.columns = ['Region', 'ZIP Count', 'Unserviced Quotes', 'Avg Distance (km)']
+        region_summary.columns = ['Region', 'ZIP Count', 'Unserviced Quotes', 'Avg Distance (mi)']
         # Add total quotes and % not serviced
         region_summary['Total Quotes'] = region_summary['Region'].map(total_quotes_by_region).fillna(0).astype(int)
         region_summary['% Not Serviced'] = (region_summary['Unserviced Quotes'] / region_summary['Total Quotes'] * 100).round(1)
         region_summary = region_summary.sort_values('Unserviced Quotes', ascending=False)
-        region_summary['Avg Distance (km)'] = region_summary['Avg Distance (km)'].round(1)
+        region_summary['Avg Distance (mi)'] = region_summary['Avg Distance (mi)'].round(1)
         # Reorder columns
-        region_summary = region_summary[['Region', 'ZIP Count', 'Unserviced Quotes', 'Total Quotes', '% Not Serviced', 'Avg Distance (km)']]
+        region_summary = region_summary[['Region', 'ZIP Count', 'Unserviced Quotes', 'Total Quotes', '% Not Serviced', 'Avg Distance (mi)']]
         st.dataframe(region_summary, use_container_width=True, hide_index=True)
     else:
         st.info("No ZIP codes match the current filters. Try adjusting the minimum quote count or maximum distance.")
