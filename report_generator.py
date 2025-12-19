@@ -29,6 +29,31 @@ def get_week_number_from_folder_name(folder_name: str) -> int:
     return week_num
 
 
+def get_year_from_folder_name(folder_name: str) -> int:
+    """Extract year from folder name like 'W4925 Quotes' -> 2025"""
+    prefix = folder_name.split()[0]  # "W4925"
+    year_suffix = int(prefix[3:5])  # Extract "25"
+    return 2000 + year_suffix
+
+
+def get_all_2025_folders(client: DriveClient) -> list[dict]:
+    """Get all week folders for 2025, sorted by week number."""
+    folders = client.search_folders("Quotes")
+
+    week_folders = []
+    for f in folders:
+        if f['name'].startswith('W') and 'Quotes' in f['name']:
+            try:
+                year = get_year_from_folder_name(f['name'])
+                if year == 2025:
+                    week_num = get_week_number_from_folder_name(f['name'])
+                    week_folders.append({'id': f['id'], 'name': f['name'], 'week': week_num})
+            except (ValueError, IndexError):
+                continue
+
+    return sorted(week_folders, key=lambda x: x['week'])
+
+
 def load_csvs_from_folder(client: DriveClient, folder_id: str, folder_name: str) -> pd.DataFrame:
     """Load all CSVs from a folder and combine into a single DataFrame."""
     files = client.list_files_in_folder(folder_id, file_type='csv')
@@ -77,10 +102,16 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
     week_folders = []
     for f in folders:
         if f['name'].startswith('W') and 'Quotes' in f['name']:
-            week_num = get_week_number_from_folder_name(f['name'])
-            week_folders.append({'id': f['id'], 'name': f['name'], 'week': week_num})
+            try:
+                week_num = get_week_number_from_folder_name(f['name'])
+                year = get_year_from_folder_name(f['name'])
+                folder_info = {'id': f['id'], 'name': f['name'], 'week': week_num, 'year': year}
+                week_folders.append(folder_info)
+            except (ValueError, IndexError):
+                continue
 
-    week_folders = sorted(week_folders, key=lambda x: x['week'], reverse=True)[:num_weeks]
+    # Sort by (year, week) to correctly order across year boundaries
+    week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
     week_folders = list(reversed(week_folders))
     weeks = [f['week'] for f in week_folders]
 
@@ -100,6 +131,7 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
     report_rows = []
     for customer in all_customers:
         row = {'Customers': customer, '_total_volume': 0}
+
         for week in weeks:
             stats = week_data[week]
             cust_stats = stats[stats['customer'] == customer]
@@ -128,6 +160,7 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
 
     # Calculate TOTAL row
     total_row = {'Customers': 'TOTAL'}
+
     for week in weeks:
         total_row[f'{week}_Booked'] = report_df[f'{week}_Booked'].sum()
         total_row[f'{week}_Rated'] = report_df[f'{week}_Rated'].sum()
@@ -251,6 +284,301 @@ def save_to_excel(report_df: pd.DataFrame, weeks: list[int], filename: str):
 
     wb.save(filename)
     print(f"✓ Excel report saved to {filename}")
+
+
+def load_zip_to_airport_mapping() -> dict:
+    """Load zip code to airport code mapping from CSV file."""
+    import os
+
+    # Try different possible locations for the mapping file
+    possible_paths = [
+        'zip_to_airport_code - Sheet1.csv',
+        os.path.join(os.path.dirname(__file__), 'zip_to_airport_code - Sheet1.csv'),
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            df = pd.read_csv(path, dtype={'Zip Code': str})
+            # Create mapping dict: zip_code -> airport_code
+            mapping = dict(zip(df['Zip Code'].astype(str).str.zfill(5), df['Airport Code']))
+            print(f"  Loaded {len(mapping):,} zip-to-airport mappings")
+            return mapping
+
+    print("  Warning: Could not find zip_to_airport_code mapping file")
+    return {}
+
+
+def get_airport_code(zip_code: str, mapping: dict) -> str:
+    """Get airport code for a zip code, or return the zip itself if not mapped."""
+    if pd.isna(zip_code) or str(zip_code).strip() == '':
+        return 'UNKNOWN'
+
+    # Normalize zip code to 5 digits
+    zip_str = str(zip_code).split('-')[0].split('.')[0].strip().zfill(5)[:5]
+
+    return mapping.get(zip_str, zip_str)
+
+
+def calculate_lanes_stats(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
+    """Calculate stats per lane (origin-destination airport pair) for a single week.
+    Only counts quotes that were rated (have a value in 'rate' column)."""
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+
+    # Only include rated quotes
+    df['is_rated'] = df['rate'].notna() & (df['rate'].astype(str).str.strip() != '')
+    rated_df = df[df['is_rated']].copy()
+
+    if rated_df.empty:
+        return pd.DataFrame()
+
+    # Map zip codes to airport codes
+    rated_df['origin_airport'] = rated_df['pickup Zip'].apply(lambda x: get_airport_code(x, mapping))
+    rated_df['dest_airport'] = rated_df['dropoff Zip'].apply(lambda x: get_airport_code(x, mapping))
+
+    # Create lane identifier
+    rated_df['lane'] = rated_df['origin_airport'] + '-' + rated_df['dest_airport']
+
+    # Count quotes per lane
+    stats = rated_df.groupby('lane').agg(
+        total=('lane', 'count')
+    ).reset_index()
+
+    return stats
+
+
+def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFrame, list[int]]:
+    """Generate the lanes quoted report for the last N weeks."""
+
+    # Load zip to airport mapping
+    mapping = load_zip_to_airport_mapping()
+
+    folders = client.search_folders("Quotes")
+
+    week_folders = []
+    for f in folders:
+        if f['name'].startswith('W') and 'Quotes' in f['name']:
+            try:
+                week_num = get_week_number_from_folder_name(f['name'])
+                year = get_year_from_folder_name(f['name'])
+                folder_info = {'id': f['id'], 'name': f['name'], 'week': week_num, 'year': year}
+                week_folders.append(folder_info)
+            except (ValueError, IndexError):
+                continue
+
+    # Sort by (year, week) to correctly order across year boundaries
+    week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
+    week_folders = list(reversed(week_folders))
+    weeks = [f['week'] for f in week_folders]
+
+    print(f"\nGenerating lanes report for weeks: {weeks}")
+
+    all_lanes = set()
+    week_data = {}
+
+    for folder in week_folders:
+        print(f"\nProcessing lanes for {folder['name']}...")
+        df = load_csvs_from_folder(client, folder['id'], folder['name'])
+        stats = calculate_lanes_stats(df, mapping)
+        week_data[folder['week']] = stats
+        if not stats.empty:
+            all_lanes.update(stats['lane'].tolist())
+
+    # Build report rows
+    report_rows = []
+    for lane in all_lanes:
+        row = {'Lanes': lane}
+        latest_week = weeks[-1] if weeks else None
+
+        for i, week in enumerate(weeks):
+            stats = week_data[week]
+            lane_stats = stats[stats['lane'] == lane] if not stats.empty else pd.DataFrame()
+
+            if not lane_stats.empty:
+                total = int(lane_stats['total'].values[0])
+            else:
+                total = 0
+
+            row[f'{week}_Total'] = total
+
+            # Calculate % change from previous week
+            if i > 0:
+                prev_week = weeks[i - 1]
+                prev_total = row.get(f'{prev_week}_Total', 0)
+                if prev_total > 0:
+                    pct_change = ((total - prev_total) / prev_total) * 100
+                    row[f'{week}_%Change'] = pct_change
+                else:
+                    row[f'{week}_%Change'] = None  # Can't calculate % change from 0
+            else:
+                row[f'{week}_%Change'] = None  # No previous week to compare
+
+        # Store latest week total for sorting
+        row['_latest_total'] = row.get(f'{latest_week}_Total', 0) if latest_week else 0
+        report_rows.append(row)
+
+    report_df = pd.DataFrame(report_rows)
+
+    if report_df.empty:
+        return pd.DataFrame(), weeks
+
+    # Sort by latest week total volume descending
+    report_df = report_df.sort_values('_latest_total', ascending=False)
+    report_df = report_df.drop(columns=['_latest_total'])
+
+    return report_df, weeks
+
+
+def load_airport_to_region_mapping() -> dict:
+    """Load airport code to region mapping from CSV file."""
+    import os
+
+    # Try different possible locations for the mapping file
+    possible_paths = [
+        'airport_code_to_region - Sheet1.csv',
+        os.path.join(os.path.dirname(__file__), 'airport_code_to_region - Sheet1.csv'),
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            df = pd.read_csv(path)
+            # Filter out empty rows
+            df = df.dropna(subset=['Airport Code', 'Region'])
+            df = df[df['Airport Code'].str.strip() != '']
+            # Create mapping dict: airport_code -> region
+            mapping = dict(zip(df['Airport Code'].str.strip(), df['Region'].str.strip()))
+            print(f"  Loaded {len(mapping):,} airport-to-region mappings")
+            return mapping
+
+    print("  Warning: Could not find airport_code_to_region mapping file")
+    return {}
+
+
+def get_region(airport_code: str, mapping: dict) -> str:
+    """Get region for an airport code, or return the airport code itself if not mapped."""
+    if pd.isna(airport_code) or str(airport_code).strip() == '':
+        return 'UNKNOWN'
+
+    airport_str = str(airport_code).strip().upper()
+    return mapping.get(airport_str, airport_str)
+
+
+def calculate_regions_stats(df: pd.DataFrame, zip_mapping: dict, region_mapping: dict) -> pd.DataFrame:
+    """Calculate stats per region pair (origin-destination region) for a single week.
+    Only counts quotes that were rated (have a value in 'rate' column)."""
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+
+    # Only include rated quotes
+    df['is_rated'] = df['rate'].notna() & (df['rate'].astype(str).str.strip() != '')
+    rated_df = df[df['is_rated']].copy()
+
+    if rated_df.empty:
+        return pd.DataFrame()
+
+    # Map zip codes to airport codes, then airport codes to regions
+    rated_df['origin_airport'] = rated_df['pickup Zip'].apply(lambda x: get_airport_code(x, zip_mapping))
+    rated_df['dest_airport'] = rated_df['dropoff Zip'].apply(lambda x: get_airport_code(x, zip_mapping))
+
+    rated_df['origin_region'] = rated_df['origin_airport'].apply(lambda x: get_region(x, region_mapping))
+    rated_df['dest_region'] = rated_df['dest_airport'].apply(lambda x: get_region(x, region_mapping))
+
+    # Create region lane identifier
+    rated_df['region_lane'] = rated_df['origin_region'] + '-' + rated_df['dest_region']
+
+    # Count quotes per region lane
+    stats = rated_df.groupby('region_lane').agg(
+        total=('region_lane', 'count')
+    ).reset_index()
+
+    return stats
+
+
+def generate_regions_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFrame, list[int]]:
+    """Generate the regions quoted report for the last N weeks."""
+
+    # Load mappings
+    zip_mapping = load_zip_to_airport_mapping()
+    region_mapping = load_airport_to_region_mapping()
+
+    folders = client.search_folders("Quotes")
+
+    week_folders = []
+    for f in folders:
+        if f['name'].startswith('W') and 'Quotes' in f['name']:
+            try:
+                week_num = get_week_number_from_folder_name(f['name'])
+                year = get_year_from_folder_name(f['name'])
+                folder_info = {'id': f['id'], 'name': f['name'], 'week': week_num, 'year': year}
+                week_folders.append(folder_info)
+            except (ValueError, IndexError):
+                continue
+
+    # Sort by (year, week) to correctly order across year boundaries
+    week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
+    week_folders = list(reversed(week_folders))
+    weeks = [f['week'] for f in week_folders]
+
+    print(f"\nGenerating regions report for weeks: {weeks}")
+
+    all_region_lanes = set()
+    week_data = {}
+
+    for folder in week_folders:
+        print(f"\nProcessing regions for {folder['name']}...")
+        df = load_csvs_from_folder(client, folder['id'], folder['name'])
+        stats = calculate_regions_stats(df, zip_mapping, region_mapping)
+        week_data[folder['week']] = stats
+        if not stats.empty:
+            all_region_lanes.update(stats['region_lane'].tolist())
+
+    # Build report rows
+    report_rows = []
+    for region_lane in all_region_lanes:
+        row = {'Regions': region_lane}
+        latest_week = weeks[-1] if weeks else None
+
+        for i, week in enumerate(weeks):
+            stats = week_data[week]
+            lane_stats = stats[stats['region_lane'] == region_lane] if not stats.empty else pd.DataFrame()
+
+            if not lane_stats.empty:
+                total = int(lane_stats['total'].values[0])
+            else:
+                total = 0
+
+            row[f'{week}_Total'] = total
+
+            # Calculate % change from previous week
+            if i > 0:
+                prev_week = weeks[i - 1]
+                prev_total = row.get(f'{prev_week}_Total', 0)
+                if prev_total > 0:
+                    pct_change = ((total - prev_total) / prev_total) * 100
+                    row[f'{week}_%Change'] = pct_change
+                else:
+                    row[f'{week}_%Change'] = None  # Can't calculate % change from 0
+            else:
+                row[f'{week}_%Change'] = None  # No previous week to compare
+
+        # Store latest week total for sorting
+        row['_latest_total'] = row.get(f'{latest_week}_Total', 0) if latest_week else 0
+        report_rows.append(row)
+
+    report_df = pd.DataFrame(report_rows)
+
+    if report_df.empty:
+        return pd.DataFrame(), weeks
+
+    # Sort by latest week total volume descending
+    report_df = report_df.sort_values('_latest_total', ascending=False)
+    report_df = report_df.drop(columns=['_latest_total'])
+
+    return report_df, weeks
 
 
 if __name__ == "__main__":
