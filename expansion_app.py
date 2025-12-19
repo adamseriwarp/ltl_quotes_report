@@ -1,17 +1,4 @@
 import streamlit as st
-import pandas as pd
-import geopandas as gpd
-import numpy as np
-import os
-import zipfile
-import urllib.request
-from shapely.strtree import STRtree
-from drive_client import DriveClient
-from report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
-import re
-
-SHAPEFILE_URL = "https://www2.census.gov/geo/tiger/TIGER2020/ZCTA520/tl_2020_us_zcta520.zip"
-SHAPEFILE_NAME = "tl_2020_us_zcta520.shp"
 
 st.set_page_config(
     page_title="WARP Expansion Analysis",
@@ -20,6 +7,24 @@ st.set_page_config(
 )
 
 st.markdown('<div style="background-color: #4472C4; color: white; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; border-radius: 5px; margin-bottom: 20px;">ZIP CODE EXPANSION ANALYSIS</div>', unsafe_allow_html=True)
+
+try:
+    import pandas as pd
+    import geopandas as gpd
+    import numpy as np
+    import os
+    import zipfile
+    import urllib.request
+    from shapely.strtree import STRtree
+    from drive_client import DriveClient
+    from report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
+    import re
+except Exception as e:
+    st.error(f"Import error: {e}")
+    st.stop()
+
+SHAPEFILE_URL = "https://www2.census.gov/geo/tiger/TIGER2020/ZCTA520/tl_2020_us_zcta520.zip"
+SHAPEFILE_NAME = "tl_2020_us_zcta520.shp"
 
 @st.cache_resource
 def get_drive_client():
