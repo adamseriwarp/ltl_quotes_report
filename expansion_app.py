@@ -269,7 +269,13 @@ def main():
 
     # Analyze
     with st.spinner("Analyzing expansion opportunities..."):
-        results, serviced_zips = analyze_expansion_opportunities(quotes_df, gdf, zip_mapping, region_mapping)
+        try:
+            results, serviced_zips = analyze_expansion_opportunities(quotes_df, gdf, zip_mapping, region_mapping)
+        except Exception as e:
+            import traceback
+            st.error(f"Analysis failed: {e}")
+            st.code(traceback.format_exc())
+            return
 
     if results.empty:
         st.warning("No unserviced zip codes found")
