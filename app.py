@@ -127,7 +127,7 @@ def main():
     total_row = report_df[report_df['Customers'] == 'TOTAL'].iloc[0] if 'TOTAL' in report_df['Customers'].values else None
 
     # Display metrics for latest week
-    st.subheader(f"📈 Week {latest_week} Summary")
+    st.subheader(f"📈 {latest_week} Summary")
     col1, col2, col3, col4 = st.columns(4)
     if total_row is not None:
         col1.metric("Total Quotes", f"{int(total_row[f'{latest_week}_Total Quotes']):,}")

@@ -136,9 +136,14 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
     # Sort by (year, week) to correctly order across year boundaries
     week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
     week_folders = list(reversed(week_folders))
-    weeks = [f['week'] for f in week_folders]
 
-    print(f"\nGenerating report for weeks: {weeks}")
+    # Create week labels like "W49 '25" for display
+    for folder in week_folders:
+        folder['label'] = f"W{folder['week']:02d} '{folder['year'] % 100:02d}"
+
+    week_labels = [f['label'] for f in week_folders]
+
+    print(f"\nGenerating report for weeks: {week_labels}")
 
     all_customers = set()
     week_data = {}
@@ -147,7 +152,7 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
         print(f"\nProcessing {folder['name']}...")
         df = load_csvs_from_folder(client, folder['id'], folder['name'])
         stats = calculate_week_stats(df)
-        week_data[folder['week']] = stats
+        week_data[folder['label']] = stats
         all_customers.update(stats['customer'].tolist())
 
     # Build report rows
@@ -155,8 +160,8 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
     for customer in all_customers:
         row = {'Customers': customer, '_total_volume': 0}
 
-        for week in weeks:
-            stats = week_data[week]
+        for week_label in week_labels:
+            stats = week_data[week_label]
             cust_stats = stats[stats['customer'] == customer]
 
             if not cust_stats.empty:
@@ -167,10 +172,10 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
             else:
                 booked, rated, total, pct = 0, 0, 0, 0.0
 
-            row[f'{week}_Booked'] = booked
-            row[f'{week}_Rated'] = rated
-            row[f'{week}_Total Quotes'] = total
-            row[f'{week}_% Rated'] = pct
+            row[f'{week_label}_Booked'] = booked
+            row[f'{week_label}_Rated'] = rated
+            row[f'{week_label}_Total Quotes'] = total
+            row[f'{week_label}_% Rated'] = pct
             row['_total_volume'] += total
 
         report_rows.append(row)
@@ -184,21 +189,21 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
     # Calculate TOTAL row
     total_row = {'Customers': 'TOTAL'}
 
-    for week in weeks:
-        total_row[f'{week}_Booked'] = report_df[f'{week}_Booked'].sum()
-        total_row[f'{week}_Rated'] = report_df[f'{week}_Rated'].sum()
-        total_row[f'{week}_Total Quotes'] = report_df[f'{week}_Total Quotes'].sum()
-        total_quotes = total_row[f'{week}_Total Quotes']
+    for week_label in week_labels:
+        total_row[f'{week_label}_Booked'] = report_df[f'{week_label}_Booked'].sum()
+        total_row[f'{week_label}_Rated'] = report_df[f'{week_label}_Rated'].sum()
+        total_row[f'{week_label}_Total Quotes'] = report_df[f'{week_label}_Total Quotes'].sum()
+        total_quotes = total_row[f'{week_label}_Total Quotes']
         if total_quotes > 0:
-            total_row[f'{week}_% Rated'] = round(
-                total_row[f'{week}_Rated'] / total_quotes * 100, 2
+            total_row[f'{week_label}_% Rated'] = round(
+                total_row[f'{week_label}_Rated'] / total_quotes * 100, 2
             )
         else:
-            total_row[f'{week}_% Rated'] = 0.0
+            total_row[f'{week_label}_% Rated'] = 0.0
 
     report_df = pd.concat([pd.DataFrame([total_row]), report_df], ignore_index=True)
 
-    return report_df, weeks
+    return report_df, week_labels
 
 
 
@@ -394,9 +399,14 @@ def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.D
     # Sort by (year, week) to correctly order across year boundaries
     week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
     week_folders = list(reversed(week_folders))
-    weeks = [f['week'] for f in week_folders]
 
-    print(f"\nGenerating lanes report for weeks: {weeks}")
+    # Create week labels like "W49 '25" for display
+    for folder in week_folders:
+        folder['label'] = f"W{folder['week']:02d} '{folder['year'] % 100:02d}"
+
+    week_labels = [f['label'] for f in week_folders]
+
+    print(f"\nGenerating lanes report for weeks: {week_labels}")
 
     all_lanes = set()
     week_data = {}
@@ -405,7 +415,7 @@ def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.D
         print(f"\nProcessing lanes for {folder['name']}...")
         df = load_csvs_from_folder(client, folder['id'], folder['name'])
         stats = calculate_lanes_stats(df, mapping)
-        week_data[folder['week']] = stats
+        week_data[folder['label']] = stats
         if not stats.empty:
             all_lanes.update(stats['lane'].tolist())
 
@@ -413,10 +423,10 @@ def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.D
     report_rows = []
     for lane in all_lanes:
         row = {'Lanes': lane}
-        latest_week = weeks[-1] if weeks else None
+        latest_week_label = week_labels[-1] if week_labels else None
 
-        for i, week in enumerate(weeks):
-            stats = week_data[week]
+        for i, week_label in enumerate(week_labels):
+            stats = week_data[week_label]
             lane_stats = stats[stats['lane'] == lane] if not stats.empty else pd.DataFrame()
 
             if not lane_stats.empty:
@@ -424,34 +434,34 @@ def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.D
             else:
                 total = 0
 
-            row[f'{week}_Total'] = total
+            row[f'{week_label}_Total'] = total
 
             # Calculate % change from previous week
             if i > 0:
-                prev_week = weeks[i - 1]
-                prev_total = row.get(f'{prev_week}_Total', 0)
+                prev_week_label = week_labels[i - 1]
+                prev_total = row.get(f'{prev_week_label}_Total', 0)
                 if prev_total > 0:
                     pct_change = ((total - prev_total) / prev_total) * 100
-                    row[f'{week}_%Change'] = pct_change
+                    row[f'{week_label}_%Change'] = pct_change
                 else:
-                    row[f'{week}_%Change'] = None  # Can't calculate % change from 0
+                    row[f'{week_label}_%Change'] = None  # Can't calculate % change from 0
             else:
-                row[f'{week}_%Change'] = None  # No previous week to compare
+                row[f'{week_label}_%Change'] = None  # No previous week to compare
 
         # Store latest week total for sorting
-        row['_latest_total'] = row.get(f'{latest_week}_Total', 0) if latest_week else 0
+        row['_latest_total'] = row.get(f'{latest_week_label}_Total', 0) if latest_week_label else 0
         report_rows.append(row)
 
     report_df = pd.DataFrame(report_rows)
 
     if report_df.empty:
-        return pd.DataFrame(), weeks
+        return pd.DataFrame(), week_labels
 
     # Sort by latest week total volume descending
     report_df = report_df.sort_values('_latest_total', ascending=False)
     report_df = report_df.drop(columns=['_latest_total'])
 
-    return report_df, weeks
+    return report_df, week_labels
 
 
 def load_airport_to_region_mapping() -> dict:
@@ -544,9 +554,14 @@ def generate_regions_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd
     # Sort by (year, week) to correctly order across year boundaries
     week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
     week_folders = list(reversed(week_folders))
-    weeks = [f['week'] for f in week_folders]
 
-    print(f"\nGenerating regions report for weeks: {weeks}")
+    # Create week labels like "W49 '25" for display
+    for folder in week_folders:
+        folder['label'] = f"W{folder['week']:02d} '{folder['year'] % 100:02d}"
+
+    week_labels = [f['label'] for f in week_folders]
+
+    print(f"\nGenerating regions report for weeks: {week_labels}")
 
     all_region_lanes = set()
     week_data = {}
@@ -555,7 +570,7 @@ def generate_regions_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd
         print(f"\nProcessing regions for {folder['name']}...")
         df = load_csvs_from_folder(client, folder['id'], folder['name'])
         stats = calculate_regions_stats(df, zip_mapping, region_mapping)
-        week_data[folder['week']] = stats
+        week_data[folder['label']] = stats
         if not stats.empty:
             all_region_lanes.update(stats['region_lane'].tolist())
 
@@ -563,10 +578,10 @@ def generate_regions_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd
     report_rows = []
     for region_lane in all_region_lanes:
         row = {'Regions': region_lane}
-        latest_week = weeks[-1] if weeks else None
+        latest_week_label = week_labels[-1] if week_labels else None
 
-        for i, week in enumerate(weeks):
-            stats = week_data[week]
+        for i, week_label in enumerate(week_labels):
+            stats = week_data[week_label]
             lane_stats = stats[stats['region_lane'] == region_lane] if not stats.empty else pd.DataFrame()
 
             if not lane_stats.empty:
@@ -574,34 +589,34 @@ def generate_regions_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd
             else:
                 total = 0
 
-            row[f'{week}_Total'] = total
+            row[f'{week_label}_Total'] = total
 
             # Calculate % change from previous week
             if i > 0:
-                prev_week = weeks[i - 1]
-                prev_total = row.get(f'{prev_week}_Total', 0)
+                prev_week_label = week_labels[i - 1]
+                prev_total = row.get(f'{prev_week_label}_Total', 0)
                 if prev_total > 0:
                     pct_change = ((total - prev_total) / prev_total) * 100
-                    row[f'{week}_%Change'] = pct_change
+                    row[f'{week_label}_%Change'] = pct_change
                 else:
-                    row[f'{week}_%Change'] = None  # Can't calculate % change from 0
+                    row[f'{week_label}_%Change'] = None  # Can't calculate % change from 0
             else:
-                row[f'{week}_%Change'] = None  # No previous week to compare
+                row[f'{week_label}_%Change'] = None  # No previous week to compare
 
         # Store latest week total for sorting
-        row['_latest_total'] = row.get(f'{latest_week}_Total', 0) if latest_week else 0
+        row['_latest_total'] = row.get(f'{latest_week_label}_Total', 0) if latest_week_label else 0
         report_rows.append(row)
 
     report_df = pd.DataFrame(report_rows)
 
     if report_df.empty:
-        return pd.DataFrame(), weeks
+        return pd.DataFrame(), week_labels
 
     # Sort by latest week total volume descending
     report_df = report_df.sort_values('_latest_total', ascending=False)
     report_df = report_df.drop(columns=['_latest_total'])
 
-    return report_df, weeks
+    return report_df, week_labels
 
 
 if __name__ == "__main__":
