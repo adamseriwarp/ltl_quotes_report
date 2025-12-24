@@ -36,10 +36,14 @@ def load_zip_centroids():
     return df
 
 @st.cache_data(ttl=300)
-def load_quotes_data(_client, selected_weeks: tuple) -> pd.DataFrame:
-    """Load quote data for selected weeks."""
+def load_quotes_data(_client, selected_year_weeks: tuple) -> pd.DataFrame:
+    """Load quote data for selected year-week combinations.
+
+    Args:
+        selected_year_weeks: tuple of (year, week) tuples to load
+    """
     folders = _client.search_folders("Quotes")
-    
+
     # Parse week folders
     week_pattern = re.compile(r'^W(\d{2})(\d{2})\s+Quotes$')
     week_folders = []
@@ -54,34 +58,37 @@ def load_quotes_data(_client, selected_weeks: tuple) -> pd.DataFrame:
                 'week': week_num,
                 'year': year
             })
-    
+
     # Sort by (year, week)
     week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)
-    
+
     all_data = []
     for wf in week_folders:
-        if wf['week'] in selected_weeks:
+        if (wf['year'], wf['week']) in selected_year_weeks:
             print(f"Loading {wf['name']}...")
             df = load_csvs_from_folder(_client, wf['id'], wf['name'])
             if not df.empty:
                 df['week'] = wf['week']
+                df['year'] = wf['year']
                 all_data.append(df)
-    
+
     if not all_data:
         return pd.DataFrame()
-    
+
     return pd.concat(all_data, ignore_index=True)
 
-def get_available_weeks(client) -> list[int]:
-    """Get list of available weeks from Drive."""
+def get_available_year_weeks(client) -> list[tuple]:
+    """Get list of available (year, week) tuples from Drive, sorted chronologically."""
     folders = client.search_folders("Quotes")
     week_pattern = re.compile(r'^W(\d{2})(\d{2})\s+Quotes$')
-    weeks = []
+    year_weeks = []
     for folder in folders:
         match = week_pattern.match(folder['name'])
         if match:
-            weeks.append(int(match.group(1)))
-    return sorted(set(weeks))
+            week_num = int(match.group(1))
+            year = 2000 + int(match.group(2))
+            year_weeks.append((year, week_num))
+    return sorted(set(year_weeks))
 
 def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame,
                                      zip_mapping: dict, region_mapping: dict) -> tuple:
@@ -196,21 +203,37 @@ def main():
         clear_csv_cache()
         st.rerun()
 
-    # Get available weeks
-    available_weeks = get_available_weeks(client)
-    if not available_weeks:
+    # Get available year-weeks
+    available_year_weeks = get_available_year_weeks(client)
+    if not available_year_weeks:
         st.error("No quote folders found")
         return
 
+    # Create display labels for the dropdown (e.g., "W01 2025", "W52 2024")
+    year_week_labels = [f"W{w:02d} {y}" for y, w in available_year_weeks]
+
     # Week range selector - default to last 4 weeks for faster loading
     st.sidebar.subheader("📅 Week Range")
-    default_from = max(max(available_weeks) - 3, min(available_weeks))
-    min_week = st.sidebar.number_input("From Week:", min_value=min(available_weeks),
-                                        max_value=max(available_weeks), value=default_from)
-    max_week = st.sidebar.number_input("To Week:", min_value=min(available_weeks),
-                                        max_value=max(available_weeks), value=max(available_weeks))
 
-    selected_weeks = tuple(range(int(min_week), int(max_week) + 1))
+    default_from_idx = max(len(available_year_weeks) - 4, 0)
+    from_selection = st.sidebar.selectbox(
+        "From:",
+        options=year_week_labels,
+        index=default_from_idx
+    )
+    to_selection = st.sidebar.selectbox(
+        "To:",
+        options=year_week_labels,
+        index=len(year_week_labels) - 1
+    )
+
+    # Get indices and create range
+    from_idx = year_week_labels.index(from_selection)
+    to_idx = year_week_labels.index(to_selection)
+    if from_idx > to_idx:
+        from_idx, to_idx = to_idx, from_idx  # Swap if reversed
+
+    selected_year_weeks = tuple(available_year_weeks[from_idx:to_idx + 1])
 
     # Filter controls
     st.sidebar.subheader("🎯 Filters")
@@ -232,9 +255,9 @@ def main():
             return
 
     # Load data
-    with st.spinner(f"Loading quotes for weeks {min_week}-{max_week}..."):
+    with st.spinner(f"Loading quotes for {from_selection} to {to_selection}..."):
         try:
-            quotes_df = load_quotes_data(client, selected_weeks)
+            quotes_df = load_quotes_data(client, selected_year_weeks)
         except Exception as e:
             st.error(f"Failed to load quotes: {e}")
             return
