@@ -143,16 +143,16 @@ def main():
     # Build HTML table with proper hierarchical headers
     def build_customer_html_table(report_df, weeks):
         # Header row 1: Week labels spanning 4 columns each
-        header1 = '<tr><th rowspan="2" style="background-color: #4472C4; color: white; padding: 8px; border: 1px solid #ddd;">Customers</th>'
+        header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #ddd;">Customers</th>'
         for i, week in enumerate(weeks):
-            bg_color = '#E2EFDA' if i % 2 == 0 else '#F2F2F2'
-            header1 += f'<th colspan="4" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center;">{week}</th>'
+            bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
+            header1 += f'<th colspan="4" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{week}</th>'
         header1 += '</tr>'
 
         # Header row 2: Sub-columns
         header2 = '<tr>'
         for i, week in enumerate(weeks):
-            bg_color = '#E2EFDA' if i % 2 == 0 else '#F2F2F2'
+            bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
             for col in ['Booked', 'Rated', 'Total Quotes', '% Rated']:
                 header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">{col}</th>'
         header2 += '</tr>'
@@ -166,7 +166,7 @@ def main():
             rows_html += f'<td style="padding: 6px; border: 1px solid #ddd; {row_style}">{row["Customers"]}</td>'
 
             for i, week in enumerate(weeks):
-                bg_color = '#E2EFDA' if i % 2 == 0 else '#F2F2F2'
+                bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
                 if is_total:
                     bg_color = '#D9D9D9'
                 cell_style = f'background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: right;'
@@ -225,45 +225,46 @@ def main():
         # Display lanes table
         st.subheader("📊 Rated Quotes by Lane (Airport-to-Airport)")
 
-        # Build display dataframe with MultiIndex columns
-        lanes_columns = [('', 'Lanes')]
-        for week in lanes_weeks:
-            lanes_columns.append((str(week), 'Total'))
-            lanes_columns.append((str(week), '%Change'))
+        # Build HTML table with proper hierarchical headers
+        def build_lanes_html_table(df, weeks):
+            header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #ddd;">Lanes</th>'
+            for i, week in enumerate(weeks):
+                bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
+                header1 += f'<th colspan="2" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{week}</th>'
+            header1 += '</tr>'
 
-        lanes_multi_index = pd.MultiIndex.from_tuples(lanes_columns)
+            header2 = '<tr>'
+            for i, week in enumerate(weeks):
+                bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">Total</th>'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">%Change</th>'
+            header2 += '</tr>'
 
-        # Rebuild data with new column structure
-        lanes_data = []
-        for idx, row in lanes_df.iterrows():
-            new_row = [row['Lanes']]
-            for week in lanes_weeks:
-                total = row.get(f'{week}_Total', 0)
-                pct_change = row.get(f'{week}_%Change', None)
-                new_row.append(int(total) if pd.notna(total) else 0)
-                if pd.notna(pct_change):
-                    new_row.append(f"{pct_change:+.0f}%")
-                else:
-                    new_row.append("-")
-            lanes_data.append(new_row)
+            rows_html = ''
+            for idx, row in df.iterrows():
+                rows_html += '<tr>'
+                rows_html += f'<td style="padding: 6px; border: 1px solid #ddd;">{row["Lanes"]}</td>'
+                for i, week in enumerate(weeks):
+                    bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
+                    cell_style = f'background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: right;'
+                    total = row.get(f'{week}_Total', 0)
+                    pct_change = row.get(f'{week}_%Change', None)
+                    total_val = int(total) if pd.notna(total) else 0
+                    pct_val = f"{pct_change:+.0f}%" if pd.notna(pct_change) else "-"
+                    rows_html += f'<td style="{cell_style}">{total_val:,}</td>'
+                    rows_html += f'<td style="{cell_style}">{pct_val}</td>'
+                rows_html += '</tr>'
 
-        lanes_display_df = pd.DataFrame(lanes_data, columns=lanes_multi_index)
+            return f'''
+            <div style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
+                <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+                    <thead style="position: sticky; top: 0;">{header1}{header2}</thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+            </div>
+            '''
 
-        # Apply styling with alternating week colors
-        def style_lanes_table(df):
-            styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            colors = ['background-color: #F2F2F2', 'background-color: #FFFFFF']
-
-            for i, week in enumerate(lanes_weeks):
-                color = colors[i % 2]
-                for sub_col in ['Total', '%Change']:
-                    if (str(week), sub_col) in df.columns:
-                        styles[(str(week), sub_col)] = color
-
-            return styles
-
-        styled_lanes_df = lanes_display_df.style.apply(lambda _: style_lanes_table(lanes_display_df), axis=None)
-        st.dataframe(styled_lanes_df, use_container_width=True, height=600)
+        st.markdown(build_lanes_html_table(lanes_df, lanes_weeks), unsafe_allow_html=True)
 
         # Download button for lanes report
         st.divider()
@@ -293,45 +294,46 @@ def main():
         # Display regions table
         st.subheader("📊 Rated Quotes by Region (Region-to-Region)")
 
-        # Build display dataframe with MultiIndex columns
-        regions_columns = [('', 'Regions')]
-        for week in regions_weeks:
-            regions_columns.append((str(week), 'Total'))
-            regions_columns.append((str(week), '%Change'))
+        # Build HTML table with proper hierarchical headers
+        def build_regions_html_table(df, weeks):
+            header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #ddd;">Regions</th>'
+            for i, week in enumerate(weeks):
+                bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
+                header1 += f'<th colspan="2" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{week}</th>'
+            header1 += '</tr>'
 
-        regions_multi_index = pd.MultiIndex.from_tuples(regions_columns)
+            header2 = '<tr>'
+            for i, week in enumerate(weeks):
+                bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">Total</th>'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">%Change</th>'
+            header2 += '</tr>'
 
-        # Rebuild data with new column structure
-        regions_data = []
-        for idx, row in regions_df.iterrows():
-            new_row = [row['Regions']]
-            for week in regions_weeks:
-                total = row.get(f'{week}_Total', 0)
-                pct_change = row.get(f'{week}_%Change', None)
-                new_row.append(int(total) if pd.notna(total) else 0)
-                if pd.notna(pct_change):
-                    new_row.append(f"{pct_change:+.0f}%")
-                else:
-                    new_row.append("-")
-            regions_data.append(new_row)
+            rows_html = ''
+            for idx, row in df.iterrows():
+                rows_html += '<tr>'
+                rows_html += f'<td style="padding: 6px; border: 1px solid #ddd;">{row["Regions"]}</td>'
+                for i, week in enumerate(weeks):
+                    bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
+                    cell_style = f'background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: right;'
+                    total = row.get(f'{week}_Total', 0)
+                    pct_change = row.get(f'{week}_%Change', None)
+                    total_val = int(total) if pd.notna(total) else 0
+                    pct_val = f"{pct_change:+.0f}%" if pd.notna(pct_change) else "-"
+                    rows_html += f'<td style="{cell_style}">{total_val:,}</td>'
+                    rows_html += f'<td style="{cell_style}">{pct_val}</td>'
+                rows_html += '</tr>'
 
-        regions_display_df = pd.DataFrame(regions_data, columns=regions_multi_index)
+            return f'''
+            <div style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
+                <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+                    <thead style="position: sticky; top: 0;">{header1}{header2}</thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+            </div>
+            '''
 
-        # Apply styling with alternating week colors
-        def style_regions_table(df):
-            styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            colors = ['background-color: #F2F2F2', 'background-color: #FFFFFF']
-
-            for i, week in enumerate(regions_weeks):
-                color = colors[i % 2]
-                for sub_col in ['Total', '%Change']:
-                    if (str(week), sub_col) in df.columns:
-                        styles[(str(week), sub_col)] = color
-
-            return styles
-
-        styled_regions_df = regions_display_df.style.apply(lambda _: style_regions_table(regions_display_df), axis=None)
-        st.dataframe(styled_regions_df, use_container_width=True, height=600)
+        st.markdown(build_regions_html_table(regions_df, regions_weeks), unsafe_allow_html=True)
 
         # Download button for regions report
         st.divider()

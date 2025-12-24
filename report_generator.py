@@ -137,9 +137,9 @@ def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFra
     week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
     week_folders = list(reversed(week_folders))
 
-    # Create week labels like "W49 '25" for display
+    # Create week labels like "W49Y25" for display
     for folder in week_folders:
-        folder['label'] = f"W{folder['week']:02d} '{folder['year'] % 100:02d}"
+        folder['label'] = f"W{folder['week']:02d}Y{folder['year'] % 100:02d}"
 
     week_labels = [f['label'] for f in week_folders]
 
@@ -400,9 +400,9 @@ def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.D
     week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
     week_folders = list(reversed(week_folders))
 
-    # Create week labels like "W49 '25" for display
+    # Create week labels like "W49Y25" for display
     for folder in week_folders:
-        folder['label'] = f"W{folder['week']:02d} '{folder['year'] % 100:02d}"
+        folder['label'] = f"W{folder['week']:02d}Y{folder['year'] % 100:02d}"
 
     week_labels = [f['label'] for f in week_folders]
 
@@ -555,9 +555,9 @@ def generate_regions_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd
     week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
     week_folders = list(reversed(week_folders))
 
-    # Create week labels like "W49 '25" for display
+    # Create week labels like "W49Y25" for display
     for folder in week_folders:
-        folder['label'] = f"W{folder['week']:02d} '{folder['year'] % 100:02d}"
+        folder['label'] = f"W{folder['week']:02d}Y{folder['year'] % 100:02d}"
 
     week_labels = [f['label'] for f in week_folders]
 
