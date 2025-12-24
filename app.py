@@ -143,18 +143,19 @@ def main():
     # Build HTML table with proper hierarchical headers
     def build_customer_html_table(report_df, weeks):
         # Header row 1: Week labels spanning 4 columns each
-        header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #ddd;">Customers</th>'
+        header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #999; border-left: 2px solid #666;">Customers</th>'
         for i, week in enumerate(weeks):
             bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-            header1 += f'<th colspan="4" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{week}</th>'
+            header1 += f'<th colspan="4" style="background-color: {bg_color}; padding: 8px; border: 1px solid #999; border-left: 2px solid #666; text-align: center; font-weight: bold;">{week}</th>'
         header1 += '</tr>'
 
         # Header row 2: Sub-columns
         header2 = '<tr>'
         for i, week in enumerate(weeks):
             bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-            for col in ['Booked', 'Rated', 'Total Quotes', '% Rated']:
-                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">{col}</th>'
+            for j, col in enumerate(['Booked', 'Rated', 'Total Quotes', '% Rated']):
+                left_border = 'border-left: 2px solid #666;' if j == 0 else 'border-left: 1px solid #999;'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; {left_border} text-align: center; font-size: 12px;">{col}</th>'
         header2 += '</tr>'
 
         # Data rows
@@ -163,28 +164,28 @@ def main():
             is_total = row['Customers'] == 'TOTAL'
             row_style = 'background-color: #D9D9D9; font-weight: bold;' if is_total else ''
             rows_html += f'<tr style="{row_style}">'
-            rows_html += f'<td style="padding: 6px; border: 1px solid #ddd; {row_style}">{row["Customers"]}</td>'
+            rows_html += f'<td style="padding: 6px; border: 1px solid #999; border-left: 2px solid #666; {row_style}">{row["Customers"]}</td>'
 
             for i, week in enumerate(weeks):
                 bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
                 if is_total:
                     bg_color = '#D9D9D9'
-                cell_style = f'background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: right;'
 
                 booked = int(row[f'{week}_Booked'])
                 rated = int(row[f'{week}_Rated'])
                 total = int(row[f'{week}_Total Quotes'])
                 pct = row[f'{week}_% Rated']
 
-                rows_html += f'<td style="{cell_style}">{booked:,}</td>'
-                rows_html += f'<td style="{cell_style}">{rated:,}</td>'
-                rows_html += f'<td style="{cell_style}">{total:,}</td>'
-                rows_html += f'<td style="{cell_style}">{pct:.2f}%</td>'
+                # First column of each week gets thick left border
+                rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; border-left: 2px solid #666; text-align: right;">{booked:,}</td>'
+                rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: right;">{rated:,}</td>'
+                rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: right;">{total:,}</td>'
+                rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: right;">{pct:.2f}%</td>'
             rows_html += '</tr>'
 
         return f'''
         <div style="overflow-x: auto;">
-            <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+            <table style="border-collapse: collapse; width: 100%; font-size: 14px; border: 2px solid #666;">
                 <thead>{header1}{header2}</thead>
                 <tbody>{rows_html}</tbody>
             </table>
@@ -227,37 +228,36 @@ def main():
 
         # Build HTML table with proper hierarchical headers
         def build_lanes_html_table(df, weeks):
-            header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #ddd;">Lanes</th>'
+            header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #999; border-left: 2px solid #666;">Lanes</th>'
             for i, week in enumerate(weeks):
                 bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-                header1 += f'<th colspan="2" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{week}</th>'
+                header1 += f'<th colspan="2" style="background-color: {bg_color}; padding: 8px; border: 1px solid #999; border-left: 2px solid #666; text-align: center; font-weight: bold;">{week}</th>'
             header1 += '</tr>'
 
             header2 = '<tr>'
             for i, week in enumerate(weeks):
                 bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">Total</th>'
-                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">%Change</th>'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; border-left: 2px solid #666; text-align: center; font-size: 12px;">Total</th>'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: center; font-size: 12px;">%Change</th>'
             header2 += '</tr>'
 
             rows_html = ''
             for idx, row in df.iterrows():
                 rows_html += '<tr>'
-                rows_html += f'<td style="padding: 6px; border: 1px solid #ddd;">{row["Lanes"]}</td>'
+                rows_html += f'<td style="padding: 6px; border: 1px solid #999; border-left: 2px solid #666;">{row["Lanes"]}</td>'
                 for i, week in enumerate(weeks):
                     bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-                    cell_style = f'background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: right;'
                     total = row.get(f'{week}_Total', 0)
                     pct_change = row.get(f'{week}_%Change', None)
                     total_val = int(total) if pd.notna(total) else 0
                     pct_val = f"{pct_change:+.0f}%" if pd.notna(pct_change) else "-"
-                    rows_html += f'<td style="{cell_style}">{total_val:,}</td>'
-                    rows_html += f'<td style="{cell_style}">{pct_val}</td>'
+                    rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; border-left: 2px solid #666; text-align: right;">{total_val:,}</td>'
+                    rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: right;">{pct_val}</td>'
                 rows_html += '</tr>'
 
             return f'''
             <div style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
-                <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+                <table style="border-collapse: collapse; width: 100%; font-size: 14px; border: 2px solid #666;">
                     <thead style="position: sticky; top: 0;">{header1}{header2}</thead>
                     <tbody>{rows_html}</tbody>
                 </table>
@@ -296,37 +296,36 @@ def main():
 
         # Build HTML table with proper hierarchical headers
         def build_regions_html_table(df, weeks):
-            header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #ddd;">Regions</th>'
+            header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #999; border-left: 2px solid #666;">Regions</th>'
             for i, week in enumerate(weeks):
                 bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-                header1 += f'<th colspan="2" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{week}</th>'
+                header1 += f'<th colspan="2" style="background-color: {bg_color}; padding: 8px; border: 1px solid #999; border-left: 2px solid #666; text-align: center; font-weight: bold;">{week}</th>'
             header1 += '</tr>'
 
             header2 = '<tr>'
             for i, week in enumerate(weeks):
                 bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">Total</th>'
-                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">%Change</th>'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; border-left: 2px solid #666; text-align: center; font-size: 12px;">Total</th>'
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: center; font-size: 12px;">%Change</th>'
             header2 += '</tr>'
 
             rows_html = ''
             for idx, row in df.iterrows():
                 rows_html += '<tr>'
-                rows_html += f'<td style="padding: 6px; border: 1px solid #ddd;">{row["Regions"]}</td>'
+                rows_html += f'<td style="padding: 6px; border: 1px solid #999; border-left: 2px solid #666;">{row["Regions"]}</td>'
                 for i, week in enumerate(weeks):
                     bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-                    cell_style = f'background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: right;'
                     total = row.get(f'{week}_Total', 0)
                     pct_change = row.get(f'{week}_%Change', None)
                     total_val = int(total) if pd.notna(total) else 0
                     pct_val = f"{pct_change:+.0f}%" if pd.notna(pct_change) else "-"
-                    rows_html += f'<td style="{cell_style}">{total_val:,}</td>'
-                    rows_html += f'<td style="{cell_style}">{pct_val}</td>'
+                    rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; border-left: 2px solid #666; text-align: right;">{total_val:,}</td>'
+                    rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: right;">{pct_val}</td>'
                 rows_html += '</tr>'
 
             return f'''
             <div style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
-                <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+                <table style="border-collapse: collapse; width: 100%; font-size: 14px; border: 2px solid #666;">
                     <thead style="position: sticky; top: 0;">{header1}{header2}</thead>
                     <tbody>{rows_html}</tbody>
                 </table>
