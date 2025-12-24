@@ -140,50 +140,58 @@ def main():
     # Display the report table
     st.subheader("📊 Quotes by Customer")
 
-    # Create multi-index columns for hierarchical headers (Week -> Booked, Rated, etc.)
-    customers = report_df['Customers'].values
-
-    # Build new dataframe with MultiIndex columns
-    new_columns = [('', 'Customers')]
-    for week in weeks:
-        new_columns.append((str(week), 'Booked'))
-        new_columns.append((str(week), 'Rated'))
-        new_columns.append((str(week), 'Total Quotes'))
-        new_columns.append((str(week), '% Rated'))
-
-    multi_index = pd.MultiIndex.from_tuples(new_columns)
-
-    # Rebuild data with new column structure
-    data = []
-    for idx, row in report_df.iterrows():
-        new_row = [row['Customers']]
-        for week in weeks:
-            new_row.append(row[f'{week}_Booked'])
-            new_row.append(row[f'{week}_Rated'])
-            new_row.append(row[f'{week}_Total Quotes'])
-            pct = row[f'{week}_% Rated']
-            new_row.append(f"{pct:.2f}%")
-        data.append(new_row)
-
-    display_df = pd.DataFrame(data, columns=multi_index)
-
-    # Apply styling with alternating week colors
-    def style_table(df):
-        styles = pd.DataFrame('', index=df.index, columns=df.columns)
-        colors = ['background-color: #F2F2F2', 'background-color: #FFFFFF']
-
+    # Build HTML table with proper hierarchical headers
+    def build_customer_html_table(report_df, weeks):
+        # Header row 1: Week labels spanning 4 columns each
+        header1 = '<tr><th rowspan="2" style="background-color: #4472C4; color: white; padding: 8px; border: 1px solid #ddd;">Customers</th>'
         for i, week in enumerate(weeks):
-            color = colors[i % 2]
-            for sub_col in ['Booked', 'Rated', 'Total Quotes', '% Rated']:
-                if (str(week), sub_col) in df.columns:
-                    styles[(str(week), sub_col)] = color
+            bg_color = '#E2EFDA' if i % 2 == 0 else '#F2F2F2'
+            header1 += f'<th colspan="4" style="background-color: {bg_color}; padding: 8px; border: 1px solid #ddd; text-align: center;">{week}</th>'
+        header1 += '</tr>'
 
-        # Bold the TOTAL row
-        styles.iloc[0] = 'background-color: #D9D9D9; font-weight: bold'
-        return styles
+        # Header row 2: Sub-columns
+        header2 = '<tr>'
+        for i, week in enumerate(weeks):
+            bg_color = '#E2EFDA' if i % 2 == 0 else '#F2F2F2'
+            for col in ['Booked', 'Rated', 'Total Quotes', '% Rated']:
+                header2 += f'<th style="background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">{col}</th>'
+        header2 += '</tr>'
 
-    styled_df = display_df.style.apply(lambda _: style_table(display_df), axis=None)
-    st.dataframe(styled_df, use_container_width=True, height=600)
+        # Data rows
+        rows_html = ''
+        for idx, row in report_df.iterrows():
+            is_total = row['Customers'] == 'TOTAL'
+            row_style = 'background-color: #D9D9D9; font-weight: bold;' if is_total else ''
+            rows_html += f'<tr style="{row_style}">'
+            rows_html += f'<td style="padding: 6px; border: 1px solid #ddd; {row_style}">{row["Customers"]}</td>'
+
+            for i, week in enumerate(weeks):
+                bg_color = '#E2EFDA' if i % 2 == 0 else '#F2F2F2'
+                if is_total:
+                    bg_color = '#D9D9D9'
+                cell_style = f'background-color: {bg_color}; padding: 6px; border: 1px solid #ddd; text-align: right;'
+
+                booked = int(row[f'{week}_Booked'])
+                rated = int(row[f'{week}_Rated'])
+                total = int(row[f'{week}_Total Quotes'])
+                pct = row[f'{week}_% Rated']
+
+                rows_html += f'<td style="{cell_style}">{booked:,}</td>'
+                rows_html += f'<td style="{cell_style}">{rated:,}</td>'
+                rows_html += f'<td style="{cell_style}">{total:,}</td>'
+                rows_html += f'<td style="{cell_style}">{pct:.2f}%</td>'
+            rows_html += '</tr>'
+
+        return f'''
+        <div style="overflow-x: auto;">
+            <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+                <thead>{header1}{header2}</thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+        '''
+
+    st.markdown(build_customer_html_table(report_df, weeks), unsafe_allow_html=True)
 
     # Download buttons for customer report
     st.divider()
