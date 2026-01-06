@@ -28,6 +28,7 @@ except Exception as e:
 # Path to shared CSV files
 SHARED_DIR = Path(__file__).parent.parent / 'shared'
 CENTROIDS_FILE = SHARED_DIR / "zip_centroids.csv"
+CROSSDOCKS_FILE = SHARED_DIR / "warp_crossdocks.csv"
 
 @st.cache_resource
 def get_drive_client():
@@ -42,6 +43,34 @@ def load_zip_centroids():
     df.set_index('zip_code', inplace=True)
     print(f"Loaded {len(df)} ZIP code centroids")
     return df
+
+
+@st.cache_resource
+def load_crossdocks():
+    """Load crossdock locations and extract zip codes from addresses.
+
+    Returns: DataFrame with columns: dock_name, zip_code
+    """
+    print("Loading crossdock locations...")
+    df = pd.read_csv(CROSSDOCKS_FILE)
+
+    # Extract zip code from address (format: "..., City, ST, ZIPCODE")
+    def extract_zip(address):
+        # Split by comma, last part should be zip code
+        parts = [p.strip() for p in address.split(',')]
+        if parts:
+            # Last part is the zip code
+            zip_code = parts[-1].strip()[:5]
+            if zip_code.isdigit() and len(zip_code) == 5:
+                return zip_code
+        return None
+
+    df['zip_code'] = df['Address'].apply(extract_zip)
+    df = df.dropna(subset=['zip_code'])
+    df = df.rename(columns={'Dock Name': 'dock_name'})
+
+    print(f"Loaded {len(df)} crossdock locations")
+    return df[['dock_name', 'zip_code']]
 
 @st.cache_data(ttl=300)
 def load_quotes_data(_client, selected_year_weeks: tuple) -> pd.DataFrame:
@@ -99,6 +128,7 @@ def get_available_year_weeks(client) -> list[tuple]:
     return sorted(set(year_weeks))
 
 def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame,
+                                     crossdocks_df: pd.DataFrame,
                                      zip_mapping: dict, region_mapping: dict) -> tuple:
     """Analyze unserviced zip codes for expansion opportunities.
 
@@ -141,7 +171,7 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
                         zip_counts[zip_code] = zip_counts.get(zip_code, 0) + 1
 
     if not zip_counts:
-        return pd.DataFrame(), serviced_zips
+        return pd.DataFrame(), serviced_zips, total_quotes_by_airport, total_quotes_by_region
 
     # Create DataFrame of unserviced zips with counts
     results = pd.DataFrame([
@@ -149,40 +179,41 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
         for z, c in zip_counts.items()
     ])
 
-    # Build list of serviced centroids from CSV
-    serviced_centroids = []
-    serviced_zip_list = []
-    for z in serviced_zips:
-        if z in centroids_df.index:
-            row = centroids_df.loc[z]
-            serviced_centroids.append(Point(row['centroid_x'], row['centroid_y']))
-            serviced_zip_list.append(z)
+    # Build list of crossdock centroids for distance calculation
+    crossdock_centroids = []
+    crossdock_names = []
+    for _, row in crossdocks_df.iterrows():
+        zip_code = row['zip_code']
+        if zip_code in centroids_df.index:
+            centroid_row = centroids_df.loc[zip_code]
+            crossdock_centroids.append(Point(centroid_row['centroid_x'], centroid_row['centroid_y']))
+            crossdock_names.append(row['dock_name'])
 
-    if serviced_centroids:
+    if crossdock_centroids:
         # Build R-tree spatial index for fast nearest neighbor queries
-        tree = STRtree(serviced_centroids)
+        tree = STRtree(crossdock_centroids)
 
         distances = []
-        nearest_zips = []
+        nearest_docks = []
         for zip_code in results['zip_code']:
             if zip_code in centroids_df.index:
                 row = centroids_df.loc[zip_code]
                 unserviced_centroid = Point(row['centroid_x'], row['centroid_y'])
-                # Find nearest serviced centroid using spatial index
+                # Find nearest crossdock using spatial index
                 nearest_idx = tree.nearest(unserviced_centroid)
-                min_dist = unserviced_centroid.distance(serviced_centroids[nearest_idx])
-                nearest_zip = serviced_zip_list[nearest_idx]
+                min_dist = unserviced_centroid.distance(crossdock_centroids[nearest_idx])
+                nearest_dock = crossdock_names[nearest_idx]
                 # Convert from meters to miles (coordinates are in EPSG:2163 meters)
                 distances.append(min_dist / 1609.34)
-                nearest_zips.append(nearest_zip)
+                nearest_docks.append(nearest_dock)
             else:
                 distances.append(np.nan)
-                nearest_zips.append(None)
+                nearest_docks.append(None)
         results['distance_miles'] = distances
-        results['nearest_serviced_zip'] = nearest_zips
+        results['nearest_crossdock'] = nearest_docks
     else:
         results['distance_miles'] = np.nan
-        results['nearest_serviced_zip'] = None
+        results['nearest_crossdock'] = None
 
     # Add airport code and region
     results['airport_code'] = results['zip_code'].apply(lambda x: get_airport_code(x, zip_mapping))
@@ -246,7 +277,7 @@ def main():
     # Filter controls
     st.sidebar.subheader("🎯 Filters")
     min_quotes = st.sidebar.slider("Minimum Quote Count:", min_value=1, max_value=500, value=10)
-    max_distance = st.sidebar.slider("Maximum Distance to Serviced ZIP (miles):",
+    max_distance = st.sidebar.slider("Maximum Distance to Crossdock (miles):",
                                       min_value=1, max_value=300, value=60)
 
     # Run Analysis button
@@ -260,6 +291,14 @@ def main():
             centroids_df = load_zip_centroids()
         except Exception as e:
             st.error(f"Failed to load ZIP centroids: {e}")
+            return
+
+    # Load crossdocks
+    with st.spinner("Loading crossdock locations..."):
+        try:
+            crossdocks_df = load_crossdocks()
+        except Exception as e:
+            st.error(f"Failed to load crossdocks: {e}")
             return
 
     # Load data
@@ -281,7 +320,9 @@ def main():
     # Analyze
     with st.spinner("Analyzing expansion opportunities..."):
         try:
-            results, serviced_zips, total_quotes_by_airport, total_quotes_by_region = analyze_expansion_opportunities(quotes_df, centroids_df, zip_mapping, region_mapping)
+            results, serviced_zips, total_quotes_by_airport, total_quotes_by_region = analyze_expansion_opportunities(
+                quotes_df, centroids_df, crossdocks_df, zip_mapping, region_mapping
+            )
         except Exception as e:
             import traceback
             st.error(f"Analysis failed: {e}")
@@ -320,8 +361,8 @@ def main():
         st.subheader(f"📊 Top Expansion Opportunities ({len(filtered)} ZIP codes)")
 
         # Format for display
-        display_df = filtered[['zip_code', 'quote_count', 'nearest_serviced_zip', 'distance_miles', 'airport_code', 'region']].copy()
-        display_df.columns = ['ZIP Code', 'Quote Count', 'Nearest Serviced ZIP', 'Distance (mi)', 'Airport Code', 'Region']
+        display_df = filtered[['zip_code', 'quote_count', 'nearest_crossdock', 'distance_miles', 'airport_code', 'region']].copy()
+        display_df.columns = ['ZIP Code', 'Quote Count', 'Nearest Crossdock', 'Distance (mi)', 'Airport Code', 'Region']
         display_df['Distance (mi)'] = display_df['Distance (mi)'].round(1)
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
@@ -334,6 +375,18 @@ def main():
             file_name="expansion_opportunities.csv",
             mime="text/csv"
         )
+
+        # Summary by crossdock
+        st.subheader("📈 Summary by Crossdock")
+        crossdock_summary = filtered.groupby('nearest_crossdock').agg({
+            'zip_code': 'count',
+            'quote_count': 'sum',
+            'distance_miles': 'mean'
+        }).reset_index()
+        crossdock_summary.columns = ['Crossdock', 'ZIP Count', 'Unserviced Quotes', 'Avg Distance (mi)']
+        crossdock_summary = crossdock_summary.sort_values('Unserviced Quotes', ascending=False)
+        crossdock_summary['Avg Distance (mi)'] = crossdock_summary['Avg Distance (mi)'].round(1)
+        st.dataframe(crossdock_summary, use_container_width=True, hide_index=True)
 
         # Summary by airport code
         st.subheader("📈 Summary by Airport Code")
