@@ -1,4 +1,6 @@
 import streamlit as st
+import sys
+from pathlib import Path
 
 st.set_page_config(
     page_title="WARP Expansion Analysis",
@@ -8,22 +10,24 @@ st.set_page_config(
 
 st.markdown('<div style="background-color: #4472C4; color: white; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; border-radius: 5px; margin-bottom: 20px;">ZIP CODE EXPANSION ANALYSIS</div>', unsafe_allow_html=True)
 
-try:
-    import pandas as pd
-    import numpy as np
-    from shapely.strtree import STRtree
-    import re
-    import sys
-    from pathlib import Path
+# Debug: Show import progress
+with st.spinner("Loading dependencies..."):
+    try:
+        import pandas as pd
+        import numpy as np
+        from shapely.strtree import STRtree
+        import re
 
-    # Add parent directory to path for imports
-    sys.path.insert(0, str(Path(__file__).parent.parent))
+        # Add parent directory to path for imports
+        sys.path.insert(0, str(Path(__file__).parent.parent))
 
-    from shared.drive_client import DriveClient
-    from main_report.report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
-except Exception as e:
-    st.error(f"Import error: {e}")
-    st.stop()
+        from shared.drive_client import DriveClient
+        from main_report.report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
+    except Exception as e:
+        st.error(f"Import error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        st.stop()
 
 # Path to shared CSV files
 SHARED_DIR = Path(__file__).parent.parent / 'shared'
