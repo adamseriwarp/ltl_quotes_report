@@ -22,7 +22,7 @@ with st.spinner("Loading dependencies..."):
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
         from shared.drive_client import DriveClient
-        from main_report.report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
+        from weekly_ltl_metrics_report.report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
     except Exception as e:
         st.error(f"Import error: {e}")
         import traceback
