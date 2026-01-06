@@ -12,14 +12,22 @@ try:
     import pandas as pd
     import numpy as np
     from shapely.strtree import STRtree
-    from drive_client import DriveClient
-    from report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
     import re
+    import sys
+    from pathlib import Path
+
+    # Add parent directory to path for imports
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from shared.drive_client import DriveClient
+    from main_report.report_generator import load_csvs_from_folder, load_zip_to_airport_mapping, load_airport_to_region_mapping, get_airport_code, get_region, clear_csv_cache
 except Exception as e:
     st.error(f"Import error: {e}")
     st.stop()
 
-CENTROIDS_FILE = "zip_centroids.csv"
+# Path to shared CSV files
+SHARED_DIR = Path(__file__).parent.parent / 'shared'
+CENTROIDS_FILE = SHARED_DIR / "zip_centroids.csv"
 
 @st.cache_resource
 def get_drive_client():

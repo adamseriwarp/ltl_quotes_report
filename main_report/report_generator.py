@@ -8,9 +8,19 @@ Generates a weekly report matching the format:
 - Excel output with formatting matching the screenshot
 """
 import io
+import os
 import pandas as pd
 from datetime import datetime
-from drive_client import DriveClient
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from shared.drive_client import DriveClient
+
+# Directory containing shared CSV files
+SHARED_DIR = Path(__file__).parent.parent / 'shared'
 
 # Optional: for Excel formatting
 try:
@@ -316,23 +326,17 @@ def save_to_excel(report_df: pd.DataFrame, weeks: list[int], filename: str):
 
 def load_zip_to_airport_mapping() -> dict:
     """Load zip code to airport code mapping from CSV file."""
-    import os
+    # Path to shared CSV file
+    csv_path = SHARED_DIR / 'zip_to_airport_code - Sheet1.csv'
 
-    # Try different possible locations for the mapping file
-    possible_paths = [
-        'zip_to_airport_code - Sheet1.csv',
-        os.path.join(os.path.dirname(__file__), 'zip_to_airport_code - Sheet1.csv'),
-    ]
+    if csv_path.exists():
+        df = pd.read_csv(csv_path, dtype={'Zip Code': str})
+        # Create mapping dict: zip_code -> airport_code
+        mapping = dict(zip(df['Zip Code'].astype(str).str.zfill(5), df['Airport Code']))
+        print(f"  Loaded {len(mapping):,} zip-to-airport mappings")
+        return mapping
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            df = pd.read_csv(path, dtype={'Zip Code': str})
-            # Create mapping dict: zip_code -> airport_code
-            mapping = dict(zip(df['Zip Code'].astype(str).str.zfill(5), df['Airport Code']))
-            print(f"  Loaded {len(mapping):,} zip-to-airport mappings")
-            return mapping
-
-    print("  Warning: Could not find zip_to_airport_code mapping file")
+    print(f"  Warning: Could not find zip_to_airport_code mapping file at {csv_path}")
     return {}
 
 
@@ -466,26 +470,20 @@ def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.D
 
 def load_airport_to_region_mapping() -> dict:
     """Load airport code to region mapping from CSV file."""
-    import os
+    # Path to shared CSV file
+    csv_path = SHARED_DIR / 'airport_code_to_region - Sheet1.csv'
 
-    # Try different possible locations for the mapping file
-    possible_paths = [
-        'airport_code_to_region - Sheet1.csv',
-        os.path.join(os.path.dirname(__file__), 'airport_code_to_region - Sheet1.csv'),
-    ]
+    if csv_path.exists():
+        df = pd.read_csv(csv_path)
+        # Filter out empty rows
+        df = df.dropna(subset=['Airport Code', 'Region'])
+        df = df[df['Airport Code'].str.strip() != '']
+        # Create mapping dict: airport_code -> region
+        mapping = dict(zip(df['Airport Code'].str.strip(), df['Region'].str.strip()))
+        print(f"  Loaded {len(mapping):,} airport-to-region mappings")
+        return mapping
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            df = pd.read_csv(path)
-            # Filter out empty rows
-            df = df.dropna(subset=['Airport Code', 'Region'])
-            df = df[df['Airport Code'].str.strip() != '']
-            # Create mapping dict: airport_code -> region
-            mapping = dict(zip(df['Airport Code'].str.strip(), df['Region'].str.strip()))
-            print(f"  Loaded {len(mapping):,} airport-to-region mappings")
-            return mapping
-
-    print("  Warning: Could not find airport_code_to_region mapping file")
+    print(f"  Warning: Could not find airport_code_to_region mapping file at {csv_path}")
     return {}
 
 

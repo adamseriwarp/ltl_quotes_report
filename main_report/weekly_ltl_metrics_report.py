@@ -1,8 +1,14 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from drive_client import DriveClient
-from report_generator import generate_report, generate_lanes_report, generate_regions_report, clear_csv_cache
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from shared.drive_client import DriveClient
+from main_report.report_generator import generate_report, generate_lanes_report, generate_regions_report, clear_csv_cache
 
 st.set_page_config(
     page_title="WARP Freight Quotes Report",
