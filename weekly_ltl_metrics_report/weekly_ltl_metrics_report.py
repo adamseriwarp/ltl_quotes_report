@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.drive_client import DriveClient
-from main_report.report_generator import generate_report, generate_lanes_report, generate_regions_report, clear_csv_cache
+from weekly_ltl_metrics_report.report_generator import generate_report, generate_lanes_report, generate_regions_report, clear_csv_cache
 
 st.set_page_config(
     page_title="WARP Freight Quotes Report",
