@@ -136,7 +136,7 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
                                      zip_mapping: dict, region_mapping: dict) -> tuple:
     """Analyze unserviced zip codes for expansion opportunities.
 
-    Returns: (results_df, serviced_zips, total_quotes_by_airport, total_quotes_by_region)
+    Returns: (results_df, serviced_zips, total_quotes_by_airport, total_quotes_by_region, customer_summary)
     """
     from shapely.geometry import Point
 
@@ -152,6 +152,11 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
     total_quotes_by_airport = df.groupby('pickup_airport').size().to_dict()
     total_quotes_by_region = df.groupby('pickup_region').size().to_dict()
 
+    # Calculate total quotes by customer
+    total_quotes_by_customer = {}
+    if 'customer' in df.columns:
+        total_quotes_by_customer = df.groupby('customer').size().to_dict()
+
     # Get all unique zip codes from rated quotes (these are "serviced")
     rated_df = df[df['is_rated']]
     serviced_zips = set()
@@ -163,7 +168,7 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
     unrated_df = df[~df['is_rated']]
 
     if unrated_df.empty:
-        return pd.DataFrame(), serviced_zips, total_quotes_by_airport, total_quotes_by_region
+        return pd.DataFrame(), serviced_zips, total_quotes_by_airport, total_quotes_by_region, pd.DataFrame()
 
     # Count quotes per zip (combining origin and destination)
     zip_counts = {}
@@ -175,7 +180,7 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
                         zip_counts[zip_code] = zip_counts.get(zip_code, 0) + 1
 
     if not zip_counts:
-        return pd.DataFrame(), serviced_zips, total_quotes_by_airport, total_quotes_by_region
+        return pd.DataFrame(), serviced_zips, total_quotes_by_airport, total_quotes_by_region, pd.DataFrame()
 
     # Create DataFrame of unserviced zips with counts
     results = pd.DataFrame([
@@ -226,7 +231,36 @@ def analyze_expansion_opportunities(df: pd.DataFrame, centroids_df: pd.DataFrame
     # Sort by quote count descending
     results = results.sort_values('quote_count', ascending=False)
 
-    return results, serviced_zips, total_quotes_by_airport, total_quotes_by_region
+    # Calculate customer summary for unserviced quotes
+    # Count unserviced quotes per customer (quotes where pickup OR dropoff zip is unserviced)
+    customer_summary = pd.DataFrame()
+    if 'customer' in unrated_df.columns:
+        # Mark each unrated quote as having an unserviced zip
+        unrated_df = unrated_df.copy()
+        unrated_df['pickup_zip_clean'] = unrated_df['pickup Zip'].astype(str).str.strip().str[:5]
+        unrated_df['dropoff_zip_clean'] = unrated_df['dropoff Zip'].astype(str).str.strip().str[:5]
+        unrated_df['has_unserviced_zip'] = (
+            ~unrated_df['pickup_zip_clean'].isin(serviced_zips) |
+            ~unrated_df['dropoff_zip_clean'].isin(serviced_zips)
+        )
+
+        # Count unserviced quotes per customer
+        unserviced_by_customer = unrated_df[unrated_df['has_unserviced_zip']].groupby('customer').size().to_dict()
+
+        # Build customer summary dataframe
+        customer_data = []
+        for customer, total in total_quotes_by_customer.items():
+            unserviced = unserviced_by_customer.get(customer, 0)
+            customer_data.append({
+                'Customer': customer,
+                'Unserviced Quotes': unserviced,
+                'Total Quotes': total,
+                '% Not Serviced': round(unserviced / total * 100, 1) if total > 0 else 0
+            })
+        customer_summary = pd.DataFrame(customer_data)
+        customer_summary = customer_summary.sort_values('Unserviced Quotes', ascending=False)
+
+    return results, serviced_zips, total_quotes_by_airport, total_quotes_by_region, customer_summary
 
 def main():
     st.sidebar.header("🔧 Analysis Options")
@@ -278,8 +312,37 @@ def main():
 
     selected_year_weeks = tuple(available_year_weeks[from_idx:to_idx + 1])
 
+    # Load data first to populate customer filter
+    with st.spinner(f"Loading quotes for {from_selection} to {to_selection}..."):
+        try:
+            quotes_df = load_quotes_data(client, selected_year_weeks)
+        except Exception as e:
+            st.error(f"Failed to load quotes: {e}")
+            return
+
+    if quotes_df.empty:
+        st.warning("No quote data found for selected weeks")
+        return
+
     # Filter controls
     st.sidebar.subheader("🎯 Filters")
+
+    # Customer filter
+    selected_customers = []
+    if 'customer' in quotes_df.columns:
+        all_customers = sorted(quotes_df['customer'].dropna().unique().tolist())
+        selected_customers = st.sidebar.multiselect(
+            "Filter by Customer:",
+            options=all_customers,
+            default=[],
+            placeholder="All customers"
+        )
+
+        # Apply customer filter if selections made
+        if selected_customers:
+            quotes_df = quotes_df[quotes_df['customer'].isin(selected_customers)]
+            st.sidebar.caption(f"Filtered to {len(quotes_df):,} quotes from {len(selected_customers)} customer(s)")
+
     min_quotes = st.sidebar.slider("Minimum Quote Count:", min_value=1, max_value=500, value=10)
     max_distance = st.sidebar.slider("Maximum Distance to Crossdock (miles):",
                                       min_value=1, max_value=300, value=60)
@@ -305,18 +368,6 @@ def main():
             st.error(f"Failed to load crossdocks: {e}")
             return
 
-    # Load data
-    with st.spinner(f"Loading quotes for {from_selection} to {to_selection}..."):
-        try:
-            quotes_df = load_quotes_data(client, selected_year_weeks)
-        except Exception as e:
-            st.error(f"Failed to load quotes: {e}")
-            return
-
-    if quotes_df.empty:
-        st.warning("No quote data found for selected weeks")
-        return
-
     # Load mappings
     zip_mapping = load_zip_to_airport_mapping()
     region_mapping = load_airport_to_region_mapping()
@@ -324,7 +375,7 @@ def main():
     # Analyze
     with st.spinner("Analyzing expansion opportunities..."):
         try:
-            results, serviced_zips, total_quotes_by_airport, total_quotes_by_region = analyze_expansion_opportunities(
+            results, serviced_zips, total_quotes_by_airport, total_quotes_by_region, customer_summary = analyze_expansion_opportunities(
                 quotes_df, centroids_df, crossdocks_df, zip_mapping, region_mapping
             )
         except Exception as e:
@@ -425,6 +476,11 @@ def main():
         # Reorder columns
         region_summary = region_summary[['Region', 'ZIP Count', 'Unserviced Quotes', 'Total Quotes', '% Not Serviced', 'Avg Distance (mi)']]
         st.dataframe(region_summary, use_container_width=True, hide_index=True)
+
+        # Summary by customer (only shown when no customer filter is applied)
+        if not selected_customers and not customer_summary.empty:
+            st.subheader("📈 Summary by Customer")
+            st.dataframe(customer_summary, use_container_width=True, hide_index=True)
     else:
         st.info("No ZIP codes match the current filters. Try adjusting the minimum quote count or maximum distance.")
 
