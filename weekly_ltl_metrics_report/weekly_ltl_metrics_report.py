@@ -127,6 +127,25 @@ def main():
 
     st.sidebar.write(f"Weeks loaded: {weeks}")
 
+    # Customer filter
+    st.sidebar.header("🏢 Customer Filter")
+    all_customers = sorted([c for c in report_df['Customers'].unique() if c != 'TOTAL'])
+    selected_customers = st.sidebar.multiselect(
+        "Select customers:",
+        options=all_customers,
+        default=all_customers,
+        help="Filter the report to show only selected customers"
+    )
+
+    # Filter the report based on selected customers (always keep TOTAL row)
+    if selected_customers:
+        display_df = report_df[
+            (report_df['Customers'].isin(selected_customers)) |
+            (report_df['Customers'] == 'TOTAL')
+        ]
+    else:
+        display_df = report_df[report_df['Customers'] == 'TOTAL']  # Show only TOTAL if none selected
+
     latest_week = weeks[-1]  # Most recent week
 
     # Get TOTAL row stats for metrics
@@ -198,14 +217,14 @@ def main():
         </div>
         '''
 
-    st.markdown(build_customer_html_table(report_df, weeks), unsafe_allow_html=True)
+    st.markdown(build_customer_html_table(display_df, weeks), unsafe_allow_html=True)
 
     # Download buttons for customer report
     st.divider()
     col1, col2 = st.columns(2)
 
     with col1:
-        csv = report_df.to_csv(index=False)
+        csv = display_df.to_csv(index=False)
         st.download_button(
             label="📥 Download Customer Report CSV",
             data=csv,
