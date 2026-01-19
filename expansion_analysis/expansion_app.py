@@ -32,7 +32,7 @@ with st.spinner("Loading dependencies..."):
 # Path to shared CSV files
 SHARED_DIR = Path(__file__).parent.parent / 'shared'
 CENTROIDS_FILE = SHARED_DIR / "zip_centroids.csv"
-CROSSDOCKS_FILE = SHARED_DIR / "warp_crossdocks.csv"
+CROSSDOCKS_FILE = Path(__file__).parent / "warp_xdocks_with_accl.csv"
 
 @st.cache_resource
 def get_drive_client():
@@ -58,10 +58,12 @@ def load_crossdocks():
     print("Loading crossdock locations...")
     df = pd.read_csv(CROSSDOCKS_FILE)
 
-    # Extract zip code from address (format: "..., City, ST, ZIPCODE")
+    # Extract zip code from address (format: "..., City, ST, ZIPCODE" or with postal code)
     def extract_zip(address):
+        if pd.isna(address):
+            return None
         # Split by comma, last part should be zip code
-        parts = [p.strip() for p in address.split(',')]
+        parts = [p.strip() for p in str(address).split(',')]
         if parts:
             # Last part is the zip code
             zip_code = parts[-1].strip()[:5]
@@ -71,7 +73,8 @@ def load_crossdocks():
 
     df['zip_code'] = df['Address'].apply(extract_zip)
     df = df.dropna(subset=['zip_code'])
-    df = df.rename(columns={'Dock Name': 'dock_name'})
+    # New CSV uses 'Name' column instead of 'Dock Name'
+    df = df.rename(columns={'Name': 'dock_name'})
 
     print(f"Loaded {len(df)} crossdock locations")
     return df[['dock_name', 'zip_code']]
