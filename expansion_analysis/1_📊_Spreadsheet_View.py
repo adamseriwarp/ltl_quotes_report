@@ -292,31 +292,28 @@ def main():
     # Create display labels for the dropdown (e.g., "W01 2025", "W52 2024")
     year_week_labels = [f"W{w:02d} {y}" for y, w in available_year_weeks]
 
-    # Week range selector - default to last 4 weeks for faster loading
-    st.sidebar.subheader("📅 Week Range")
+    # Week selector - default to last 2 weeks
+    default_weeks = year_week_labels[-2:] if len(year_week_labels) >= 2 else year_week_labels
 
-    default_from_idx = max(len(available_year_weeks) - 4, 0)
-    from_selection = st.sidebar.selectbox(
-        "From:",
+    selected_week_labels = st.sidebar.multiselect(
+        "Select Weeks:",
         options=year_week_labels,
-        index=default_from_idx
-    )
-    to_selection = st.sidebar.selectbox(
-        "To:",
-        options=year_week_labels,
-        index=len(year_week_labels) - 1
+        default=default_weeks
     )
 
-    # Get indices and create range
-    from_idx = year_week_labels.index(from_selection)
-    to_idx = year_week_labels.index(to_selection)
-    if from_idx > to_idx:
-        from_idx, to_idx = to_idx, from_idx  # Swap if reversed
+    if not selected_week_labels:
+        st.warning("Please select at least one week")
+        return
 
-    selected_year_weeks = tuple(available_year_weeks[from_idx:to_idx + 1])
+    # Convert selected labels back to (year, week) tuples
+    selected_year_weeks = tuple(
+        available_year_weeks[year_week_labels.index(label)]
+        for label in selected_week_labels
+    )
 
     # Load data first to populate customer filter
-    with st.spinner(f"Loading quotes for {from_selection} to {to_selection}..."):
+    weeks_str = ", ".join(selected_week_labels) if len(selected_week_labels) <= 3 else f"{len(selected_week_labels)} weeks"
+    with st.spinner(f"Loading quotes for {weeks_str}..."):
         try:
             quotes_df = load_quotes_data(client, selected_year_weeks)
         except Exception as e:
