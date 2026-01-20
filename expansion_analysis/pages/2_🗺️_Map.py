@@ -382,9 +382,11 @@ if st.session_state.map_data is not None and st.session_state.map_crossdocks is 
     # Add legend
     legend_html = '''
     <div style="position: fixed; bottom: 50px; left: 50px; z-index: 1000; background-color: white;
-                padding: 10px; border-radius: 5px; border: 2px solid gray;">
-        <p><span style="color: #2563eb;">●</span> Crossdock</p>
-        <p><span style="color: #ea580c;">●</span> Unserviced ZIP</p>
+                padding: 12px 15px; border-radius: 5px; border: 2px solid gray; font-size: 13px; line-height: 1.6;">
+        <p style="margin: 0 0 5px 0;"><span style="color: #2563eb;">●</span> Crossdock</p>
+        <p style="margin: 0 0 8px 0;"><span style="color: #ea580c;">●</span> Unserviced ZIP</p>
+        <hr style="margin: 5px 0; border: none; border-top: 1px solid #ddd;">
+        <p style="margin: 5px 0 0 0; font-size: 11px; color: #666;">Cluster numbers = total quotes</p>
     </div>
     '''
     m.get_root().html.add_child(folium.Element(legend_html))
