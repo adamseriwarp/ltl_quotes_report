@@ -350,13 +350,27 @@ if st.session_state.map_data is not None and st.session_state.map_crossdocks is 
         ).add_to(m)
 
         max_quotes = all_unserviced['total_quotes'].max()
+        min_quotes = all_unserviced['total_quotes'].min()
+
+        # Use logarithmic scaling for better visual distribution
+        import math
+        log_max = math.log(max_quotes + 1)
+        log_min = math.log(min_quotes + 1)
+
         for zip_code, row in all_unserviced.iterrows():
-            radius = 4 + (row['total_quotes'] / max_quotes) * 12  # Scale 4-16
+            quotes = row['total_quotes']
+            # Logarithmic scaling: radius from 5 to 25 pixels
+            if log_max > log_min:
+                scale = (math.log(quotes + 1) - log_min) / (log_max - log_min)
+            else:
+                scale = 0.5
+            radius = 5 + scale * 20  # Scale 5-25 pixels
+
             # Use Marker instead of CircleMarker to pass custom quoteCount option
             folium.Marker(
                 location=[row['lat'], row['lng']],
                 icon=folium.DivIcon(
-                    html=f'<div style="background-color:#ea580c; width:{int(radius*2)}px; height:{int(radius*2)}px; border-radius:50%; border:1px solid #c2410c;"></div>',
+                    html=f'<div style="background-color:#ea580c; width:{int(radius*2)}px; height:{int(radius*2)}px; border-radius:50%; border:2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></div>',
                     icon_size=(int(radius*2), int(radius*2)),
                     icon_anchor=(int(radius), int(radius))
                 ),
