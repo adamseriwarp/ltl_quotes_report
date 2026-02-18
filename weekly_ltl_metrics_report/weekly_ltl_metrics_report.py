@@ -8,7 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.drive_client import DriveClient
-from weekly_ltl_metrics_report.report_generator import generate_report, generate_lanes_report, generate_regions_report, clear_csv_cache
+from weekly_ltl_metrics_report.report_generator import (
+    generate_report, generate_lanes_report, generate_regions_report,
+    clear_csv_cache, get_available_weeks
+)
 
 st.set_page_config(
     page_title="WARP Freight Quotes Report",
@@ -78,25 +81,35 @@ def get_drive_client():
     return DriveClient()
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
-def load_report(_client, num_weeks: int) -> tuple:
-    """Load and cache the report data."""
-    return generate_report(_client, num_weeks=num_weeks)
+def load_available_weeks(_client, max_weeks: int = 12) -> list[dict]:
+    """Load and cache available weeks from Drive."""
+    return get_available_weeks(_client, max_weeks=max_weeks)
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
-def load_lanes_report(_client, num_weeks: int) -> tuple:
-    """Load and cache the lanes report data."""
-    return generate_lanes_report(_client, num_weeks=num_weeks)
+def load_report(_client, selected_week_labels: tuple[str, ...]) -> tuple:
+    """Load and cache the report data for selected weeks."""
+    # We need to re-fetch the week folders based on labels (cache-friendly)
+    all_weeks = load_available_weeks(_client)
+    selected_weeks = [w for w in all_weeks if w['label'] in selected_week_labels]
+    return generate_report(_client, selected_weeks=selected_weeks)
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
-def load_regions_report(_client, num_weeks: int) -> tuple:
-    """Load and cache the regions report data."""
-    return generate_regions_report(_client, num_weeks=num_weeks)
+def load_lanes_report(_client, selected_week_labels: tuple[str, ...]) -> tuple:
+    """Load and cache the lanes report data for selected weeks."""
+    all_weeks = load_available_weeks(_client)
+    selected_weeks = [w for w in all_weeks if w['label'] in selected_week_labels]
+    return generate_lanes_report(_client, selected_weeks=selected_weeks)
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def load_regions_report(_client, selected_week_labels: tuple[str, ...]) -> tuple:
+    """Load and cache the regions report data for selected weeks."""
+    all_weeks = load_available_weeks(_client)
+    selected_weeks = [w for w in all_weeks if w['label'] in selected_week_labels]
+    return generate_regions_report(_client, selected_weeks=selected_weeks)
 
 def main():
     # Sidebar controls
     st.sidebar.header("📅 Report Options")
-
-    num_weeks = st.sidebar.slider("Number of weeks:", min_value=1, max_value=8, value=4)
 
     # Connect to Drive
     with st.spinner("Connecting to Google Drive..."):
@@ -107,16 +120,44 @@ def main():
             st.error(f"Failed to connect to Google Drive: {e}")
             return
 
+    # Load available weeks for the multiselect
+    with st.spinner("Loading available weeks..."):
+        try:
+            available_weeks = load_available_weeks(client, max_weeks=12)
+        except Exception as e:
+            st.error(f"Error loading available weeks: {e}")
+            return
+
+    # Create week label options (chronological order, oldest first)
+    week_labels = [w['label'] for w in available_weeks]
+
+    # Default to the 4 most recent weeks
+    default_weeks = week_labels[-4:] if len(week_labels) >= 4 else week_labels
+
+    selected_week_labels = st.sidebar.multiselect(
+        "Select weeks:",
+        options=week_labels,
+        default=default_weeks,
+        help="Select specific weeks to include in the report"
+    )
+
+    if not selected_week_labels:
+        st.warning("Please select at least one week.")
+        return
+
     # Load data button
     if st.sidebar.button("🔄 Refresh Data", type="primary"):
         st.cache_data.clear()
         clear_csv_cache()  # Also clear the in-memory CSV cache
         st.rerun()
 
+    # Convert to tuple for caching (lists are not hashable)
+    selected_week_labels_tuple = tuple(selected_week_labels)
+
     # Load report
-    with st.spinner(f"Loading data for {num_weeks} weeks..."):
+    with st.spinner(f"Loading data for {len(selected_week_labels)} weeks..."):
         try:
-            report_df, weeks = load_report(client, num_weeks)
+            report_df, weeks = load_report(client, selected_week_labels_tuple)
         except Exception as e:
             st.error(f"Error loading report: {e}")
             return
@@ -242,7 +283,7 @@ def main():
     # Load lanes report using same weeks
     with st.spinner("Loading lanes data..."):
         try:
-            lanes_df, lanes_weeks = load_lanes_report(client, num_weeks)
+            lanes_df, lanes_weeks = load_lanes_report(client, selected_week_labels_tuple)
         except Exception as e:
             st.error(f"Error loading lanes report: {e}")
             lanes_df = pd.DataFrame()
@@ -310,7 +351,7 @@ def main():
     # Load regions report using same weeks
     with st.spinner("Loading regions data..."):
         try:
-            regions_df, regions_weeks = load_regions_report(client, num_weeks)
+            regions_df, regions_weeks = load_regions_report(client, selected_week_labels_tuple)
         except Exception as e:
             st.error(f"Error loading regions report: {e}")
             regions_df = pd.DataFrame()

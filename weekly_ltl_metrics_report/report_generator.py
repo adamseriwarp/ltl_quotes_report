@@ -64,6 +64,37 @@ def get_all_2025_folders(client: DriveClient) -> list[dict]:
     return sorted(week_folders, key=lambda x: x['week'])
 
 
+def get_available_weeks(client: DriveClient, max_weeks: int = 12) -> list[dict]:
+    """
+    Get all available week folders with labels, sorted chronologically.
+    Returns list of dicts with: id, name, week, year, label
+    """
+    folders = client.search_folders("Quotes")
+
+    week_folders = []
+    for f in folders:
+        if f['name'].startswith('W') and 'Quotes' in f['name']:
+            try:
+                week_num = get_week_number_from_folder_name(f['name'])
+                year = get_year_from_folder_name(f['name'])
+                label = f"W{week_num:02d}Y{year % 100:02d}"
+                folder_info = {
+                    'id': f['id'],
+                    'name': f['name'],
+                    'week': week_num,
+                    'year': year,
+                    'label': label
+                }
+                week_folders.append(folder_info)
+            except (ValueError, IndexError):
+                continue
+
+    # Sort chronologically (oldest to newest), then take most recent max_weeks
+    week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:max_weeks]
+    # Reverse to get chronological order (oldest first)
+    return list(reversed(week_folders))
+
+
 # Global cache for loaded CSV data (shared across report generators)
 _csv_cache: dict[str, pd.DataFrame] = {}
 
@@ -127,30 +158,20 @@ def calculate_week_stats(df: pd.DataFrame) -> pd.DataFrame:
     return stats
 
 
-def generate_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFrame, list[int]]:
-    """Generate the full pivot report for the last N weeks."""
+def generate_report(client: DriveClient, selected_weeks: list[dict] = None, num_weeks: int = 4) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Generate the full pivot report for selected weeks.
 
-    folders = client.search_folders("Quotes")
+    Args:
+        client: DriveClient instance
+        selected_weeks: List of week folder dicts (from get_available_weeks). If None, falls back to num_weeks.
+        num_weeks: Number of most recent weeks (only used if selected_weeks is None)
+    """
+    if selected_weeks is None:
+        # Fallback to old behavior for backwards compatibility
+        selected_weeks = get_available_weeks(client, max_weeks=num_weeks)
 
-    week_folders = []
-    for f in folders:
-        if f['name'].startswith('W') and 'Quotes' in f['name']:
-            try:
-                week_num = get_week_number_from_folder_name(f['name'])
-                year = get_year_from_folder_name(f['name'])
-                folder_info = {'id': f['id'], 'name': f['name'], 'week': week_num, 'year': year}
-                week_folders.append(folder_info)
-            except (ValueError, IndexError):
-                continue
-
-    # Sort by (year, week) to correctly order across year boundaries
-    week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
-    week_folders = list(reversed(week_folders))
-
-    # Create week labels like "W49Y25" for display
-    for folder in week_folders:
-        folder['label'] = f"W{folder['week']:02d}Y{folder['year'] % 100:02d}"
-
+    week_folders = selected_weeks
     week_labels = [f['label'] for f in week_folders]
 
     print(f"\nGenerating report for weeks: {week_labels}")
@@ -381,33 +402,22 @@ def calculate_lanes_stats(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
     return stats
 
 
-def generate_lanes_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFrame, list[int]]:
-    """Generate the lanes quoted report for the last N weeks."""
+def generate_lanes_report(client: DriveClient, selected_weeks: list[dict] = None, num_weeks: int = 4) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Generate the lanes quoted report for selected weeks.
 
+    Args:
+        client: DriveClient instance
+        selected_weeks: List of week folder dicts (from get_available_weeks). If None, falls back to num_weeks.
+        num_weeks: Number of most recent weeks (only used if selected_weeks is None)
+    """
     # Load zip to airport mapping
     mapping = load_zip_to_airport_mapping()
 
-    folders = client.search_folders("Quotes")
+    if selected_weeks is None:
+        selected_weeks = get_available_weeks(client, max_weeks=num_weeks)
 
-    week_folders = []
-    for f in folders:
-        if f['name'].startswith('W') and 'Quotes' in f['name']:
-            try:
-                week_num = get_week_number_from_folder_name(f['name'])
-                year = get_year_from_folder_name(f['name'])
-                folder_info = {'id': f['id'], 'name': f['name'], 'week': week_num, 'year': year}
-                week_folders.append(folder_info)
-            except (ValueError, IndexError):
-                continue
-
-    # Sort by (year, week) to correctly order across year boundaries
-    week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
-    week_folders = list(reversed(week_folders))
-
-    # Create week labels like "W49Y25" for display
-    for folder in week_folders:
-        folder['label'] = f"W{folder['week']:02d}Y{folder['year'] % 100:02d}"
-
+    week_folders = selected_weeks
     week_labels = [f['label'] for f in week_folders]
 
     print(f"\nGenerating lanes report for weeks: {week_labels}")
@@ -529,34 +539,23 @@ def calculate_regions_stats(df: pd.DataFrame, zip_mapping: dict, region_mapping:
     return stats
 
 
-def generate_regions_report(client: DriveClient, num_weeks: int = 4) -> tuple[pd.DataFrame, list[int]]:
-    """Generate the regions quoted report for the last N weeks."""
+def generate_regions_report(client: DriveClient, selected_weeks: list[dict] = None, num_weeks: int = 4) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Generate the regions quoted report for selected weeks.
 
+    Args:
+        client: DriveClient instance
+        selected_weeks: List of week folder dicts (from get_available_weeks). If None, falls back to num_weeks.
+        num_weeks: Number of most recent weeks (only used if selected_weeks is None)
+    """
     # Load mappings
     zip_mapping = load_zip_to_airport_mapping()
     region_mapping = load_airport_to_region_mapping()
 
-    folders = client.search_folders("Quotes")
+    if selected_weeks is None:
+        selected_weeks = get_available_weeks(client, max_weeks=num_weeks)
 
-    week_folders = []
-    for f in folders:
-        if f['name'].startswith('W') and 'Quotes' in f['name']:
-            try:
-                week_num = get_week_number_from_folder_name(f['name'])
-                year = get_year_from_folder_name(f['name'])
-                folder_info = {'id': f['id'], 'name': f['name'], 'week': week_num, 'year': year}
-                week_folders.append(folder_info)
-            except (ValueError, IndexError):
-                continue
-
-    # Sort by (year, week) to correctly order across year boundaries
-    week_folders = sorted(week_folders, key=lambda x: (x['year'], x['week']), reverse=True)[:num_weeks]
-    week_folders = list(reversed(week_folders))
-
-    # Create week labels like "W49Y25" for display
-    for folder in week_folders:
-        folder['label'] = f"W{folder['week']:02d}Y{folder['year'] % 100:02d}"
-
+    week_folders = selected_weeks
     week_labels = [f['label'] for f in week_folders]
 
     print(f"\nGenerating regions report for weeks: {week_labels}")
