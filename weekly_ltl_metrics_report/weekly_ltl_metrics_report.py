@@ -123,10 +123,10 @@ def main():
             st.error(f"Failed to connect to Google Drive: {e}")
             return
 
-    # Load available weeks for the multiselect
+    # Load available weeks for the multiselect (up to 52 weeks / 1 year)
     with st.spinner("Loading available weeks..."):
         try:
-            available_weeks = load_available_weeks(client, max_weeks=12)
+            available_weeks = load_available_weeks(client, max_weeks=52)
         except Exception as e:
             st.error(f"Error loading available weeks: {e}")
             return
@@ -134,15 +134,47 @@ def main():
     # Create week label options (chronological order, oldest first)
     week_labels = [w['label'] for w in available_weeks]
 
-    # Default to the 4 most recent weeks
-    default_weeks = week_labels[-4:] if len(week_labels) >= 4 else week_labels
+    if not week_labels:
+        st.warning("No weeks available.")
+        return
 
-    selected_week_labels = st.sidebar.multiselect(
-        "Select weeks:",
-        options=week_labels,
-        default=default_weeks,
-        help="Select specific weeks to include in the report"
+    # Slider to quickly select range of recent weeks
+    max_slider = min(len(week_labels), 52)
+    num_weeks_slider = st.sidebar.slider(
+        "Quick select (last N weeks):",
+        min_value=1,
+        max_value=max_slider,
+        value=min(4, max_slider),
+        help="Drag to quickly select the most recent N weeks"
     )
+
+    # Calculate default selection based on slider
+    slider_default = week_labels[-num_weeks_slider:] if num_weeks_slider <= len(week_labels) else week_labels
+
+    # Use session state to track if user has manually edited the multiselect
+    if 'week_selection_initialized' not in st.session_state:
+        st.session_state.week_selection_initialized = True
+        st.session_state.last_slider_value = num_weeks_slider
+
+    # If slider changed, update the selection
+    if st.session_state.last_slider_value != num_weeks_slider:
+        st.session_state.last_slider_value = num_weeks_slider
+        st.session_state.selected_weeks = slider_default
+
+    # Initialize selected_weeks in session state if not present
+    if 'selected_weeks' not in st.session_state:
+        st.session_state.selected_weeks = slider_default
+
+    # Multiselect for fine-tuning (remove specific weeks)
+    selected_week_labels = st.sidebar.multiselect(
+        "Fine-tune selection:",
+        options=week_labels,
+        default=st.session_state.selected_weeks,
+        help="Remove specific weeks you don't want to include"
+    )
+
+    # Update session state with current selection
+    st.session_state.selected_weeks = selected_week_labels
 
     if not selected_week_labels:
         st.warning("Please select at least one week.")
