@@ -30,6 +30,9 @@ def check_password():
 
     def password_entered():
         """Checks whether a password entered by the user is correct."""
+        # Check if password key exists before accessing
+        if "password" not in st.session_state:
+            return
         if st.session_state["password"] == st.secrets["password"]:
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # Don't store password
