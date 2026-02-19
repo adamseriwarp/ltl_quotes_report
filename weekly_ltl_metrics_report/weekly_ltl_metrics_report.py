@@ -249,14 +249,21 @@ def main():
     WEEKLY_THRESHOLD = 12
     use_monthly = len(selected_week_labels) > WEEKLY_THRESHOLD
 
+    # Show warning for large selections
+    if len(selected_week_labels) > 30:
+        st.sidebar.warning(f"⚠️ Loading {len(selected_week_labels)} weeks may take a while...")
+
     # Load report
     if use_monthly:
-        with st.spinner(f"Loading data for {len(selected_week_labels)} weeks (aggregating by month)..."):
+        loading_msg = f"Loading {len(selected_week_labels)} weeks and aggregating by month... This may take a moment."
+        with st.spinner(loading_msg):
             try:
                 report_df, period_labels = load_monthly_report(client, selected_week_labels_tuple)
                 view_mode = "monthly"
             except Exception as e:
                 st.error(f"Error loading report: {e}")
+                import traceback
+                st.code(traceback.format_exc())
                 return
     else:
         with st.spinner(f"Loading data for {len(selected_week_labels)} weeks..."):
@@ -265,6 +272,8 @@ def main():
                 view_mode = "weekly"
             except Exception as e:
                 st.error(f"Error loading report: {e}")
+                import traceback
+                st.code(traceback.format_exc())
                 return
 
     if report_df.empty:

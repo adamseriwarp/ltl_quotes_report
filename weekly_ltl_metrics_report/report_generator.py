@@ -330,23 +330,42 @@ def generate_monthly_report(client: DriveClient, selected_weeks: list[dict]) -> 
 
     report_df = pd.DataFrame(report_rows)
 
+    # Handle empty report
+    if report_df.empty or len(all_customers) == 0:
+        # Return empty dataframe with proper structure
+        empty_cols = ['Customers']
+        for month_label in month_labels:
+            empty_cols.extend([f'{month_label}_Booked', f'{month_label}_Rated',
+                              f'{month_label}_Total Quotes', f'{month_label}_% Rated'])
+        return pd.DataFrame(columns=empty_cols), month_labels
+
     # Sort by total volume descending
-    report_df = report_df.sort_values('_total_volume', ascending=False)
-    report_df = report_df.drop(columns=['_total_volume'])
+    if '_total_volume' in report_df.columns:
+        report_df = report_df.sort_values('_total_volume', ascending=False)
+        report_df = report_df.drop(columns=['_total_volume'])
 
     # Calculate TOTAL row
     total_row = {'Customers': 'TOTAL'}
     for month_label in month_labels:
-        total_row[f'{month_label}_Booked'] = report_df[f'{month_label}_Booked'].sum()
-        total_row[f'{month_label}_Rated'] = report_df[f'{month_label}_Rated'].sum()
-        total_row[f'{month_label}_Total Quotes'] = report_df[f'{month_label}_Total Quotes'].sum()
-        total_quotes = total_row[f'{month_label}_Total Quotes']
-        if total_quotes > 0:
-            total_row[f'{month_label}_% Rated'] = round(
-                total_row[f'{month_label}_Rated'] / total_quotes * 100, 2
-            )
+        booked_col = f'{month_label}_Booked'
+        rated_col = f'{month_label}_Rated'
+        total_col = f'{month_label}_Total Quotes'
+        pct_col = f'{month_label}_% Rated'
+
+        if booked_col in report_df.columns:
+            total_row[booked_col] = report_df[booked_col].sum()
+            total_row[rated_col] = report_df[rated_col].sum()
+            total_row[total_col] = report_df[total_col].sum()
+            total_quotes = total_row[total_col]
+            if total_quotes > 0:
+                total_row[pct_col] = round(total_row[rated_col] / total_quotes * 100, 2)
+            else:
+                total_row[pct_col] = 0.0
         else:
-            total_row[f'{month_label}_% Rated'] = 0.0
+            total_row[booked_col] = 0
+            total_row[rated_col] = 0
+            total_row[total_col] = 0
+            total_row[pct_col] = 0.0
 
     report_df = pd.concat([pd.DataFrame([total_row]), report_df], ignore_index=True)
 
