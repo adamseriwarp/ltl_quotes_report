@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.drive_client import DriveClient
 from weekly_ltl_metrics_report.report_generator import (
     generate_report, generate_lanes_report, generate_regions_report,
-    clear_csv_cache, get_available_weeks
+    generate_monthly_report, clear_csv_cache, get_available_weeks
 )
 
 st.set_page_config(
@@ -92,9 +92,16 @@ def load_available_weeks(_client, max_weeks: int = 12) -> list[dict]:
 def load_report(_client, selected_week_labels: tuple[str, ...]) -> tuple:
     """Load and cache the report data for selected weeks."""
     # We need to re-fetch the week folders based on labels (cache-friendly)
-    all_weeks = load_available_weeks(_client)
+    all_weeks = load_available_weeks(_client, max_weeks=52)
     selected_weeks = [w for w in all_weeks if w['label'] in selected_week_labels]
     return generate_report(_client, selected_weeks=selected_weeks)
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def load_monthly_report(_client, selected_week_labels: tuple[str, ...]) -> tuple:
+    """Load and cache the monthly aggregated report data for selected weeks."""
+    all_weeks = load_available_weeks(_client, max_weeks=52)
+    selected_weeks = [w for w in all_weeks if w['label'] in selected_week_labels]
+    return generate_monthly_report(_client, selected_weeks=selected_weeks)
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def load_lanes_report(_client, selected_week_labels: tuple[str, ...]) -> tuple:
@@ -189,19 +196,37 @@ def main():
     # Convert to tuple for caching (lists are not hashable)
     selected_week_labels_tuple = tuple(selected_week_labels)
 
+    # Decide: weekly view (<= 12 weeks) or monthly aggregation (> 12 weeks)
+    WEEKLY_THRESHOLD = 12
+    use_monthly = len(selected_week_labels) > WEEKLY_THRESHOLD
+
     # Load report
-    with st.spinner(f"Loading data for {len(selected_week_labels)} weeks..."):
-        try:
-            report_df, weeks = load_report(client, selected_week_labels_tuple)
-        except Exception as e:
-            st.error(f"Error loading report: {e}")
-            return
+    if use_monthly:
+        with st.spinner(f"Loading data for {len(selected_week_labels)} weeks (aggregating by month)..."):
+            try:
+                report_df, period_labels = load_monthly_report(client, selected_week_labels_tuple)
+                view_mode = "monthly"
+            except Exception as e:
+                st.error(f"Error loading report: {e}")
+                return
+    else:
+        with st.spinner(f"Loading data for {len(selected_week_labels)} weeks..."):
+            try:
+                report_df, period_labels = load_report(client, selected_week_labels_tuple)
+                view_mode = "weekly"
+            except Exception as e:
+                st.error(f"Error loading report: {e}")
+                return
 
     if report_df.empty:
         st.warning("No data found.")
         return
 
-    st.sidebar.write(f"Weeks loaded: {weeks}")
+    # Show mode indicator
+    if use_monthly:
+        st.sidebar.info(f"📅 **Monthly view** ({len(selected_week_labels)} weeks → {len(period_labels)} months)")
+    else:
+        st.sidebar.write(f"Weeks loaded: {period_labels}")
 
     # Customer filter
     st.sidebar.header("🏢 Customer Filter")
@@ -222,37 +247,39 @@ def main():
     else:
         display_df = report_df[report_df['Customers'] == 'TOTAL']  # Show only TOTAL if none selected
 
-    latest_week = weeks[-1]  # Most recent week
+    latest_period = period_labels[-1]  # Most recent period (week or month)
 
     # Get TOTAL row stats for metrics
     total_row = report_df[report_df['Customers'] == 'TOTAL'].iloc[0] if 'TOTAL' in report_df['Customers'].values else None
 
-    # Display metrics for latest week
-    st.subheader(f"📈 {latest_week} Summary")
+    # Display metrics for latest period
+    period_type = "Month" if use_monthly else "Week"
+    st.subheader(f"📈 {latest_period} Summary")
     col1, col2, col3, col4 = st.columns(4)
     if total_row is not None:
-        col1.metric("Total Quotes", f"{int(total_row[f'{latest_week}_Total Quotes']):,}")
-        col2.metric("Rated Quotes", f"{int(total_row[f'{latest_week}_Rated']):,}")
-        col3.metric("Booked", f"{int(total_row[f'{latest_week}_Booked']):,}")
-        col4.metric("% Rated", f"{total_row[f'{latest_week}_% Rated']:.2f}%")
+        col1.metric("Total Quotes", f"{int(total_row[f'{latest_period}_Total Quotes']):,}")
+        col2.metric("Rated Quotes", f"{int(total_row[f'{latest_period}_Rated']):,}")
+        col3.metric("Booked", f"{int(total_row[f'{latest_period}_Booked']):,}")
+        col4.metric("% Rated", f"{total_row[f'{latest_period}_% Rated']:.2f}%")
 
     st.divider()
 
     # Display the report table
-    st.subheader("📊 Quotes by Customer")
+    table_title = "📊 Quotes by Customer (Monthly)" if use_monthly else "📊 Quotes by Customer"
+    st.subheader(table_title)
 
     # Build HTML table with proper hierarchical headers
-    def build_customer_html_table(report_df, weeks):
-        # Header row 1: Week labels spanning 4 columns each
+    def build_customer_html_table(report_df, periods):
+        # Header row 1: Period labels spanning 4 columns each
         header1 = '<tr><th rowspan="2" style="background-color: #F2F2F2; padding: 8px; border: 1px solid #999; border-left: 2px solid #666;">Customers</th>'
-        for i, week in enumerate(weeks):
+        for i, period in enumerate(periods):
             bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
-            header1 += f'<th colspan="4" style="background-color: {bg_color}; padding: 8px; border: 1px solid #999; border-left: 2px solid #666; text-align: center; font-weight: bold;">{week}</th>'
+            header1 += f'<th colspan="4" style="background-color: {bg_color}; padding: 8px; border: 1px solid #999; border-left: 2px solid #666; text-align: center; font-weight: bold;">{period}</th>'
         header1 += '</tr>'
 
         # Header row 2: Sub-columns
         header2 = '<tr>'
-        for i, week in enumerate(weeks):
+        for i, period in enumerate(periods):
             bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
             for j, col in enumerate(['Booked', 'Rated', 'Total Quotes', '% Rated']):
                 left_border = 'border-left: 2px solid #666;' if j == 0 else 'border-left: 1px solid #999;'
@@ -267,17 +294,17 @@ def main():
             rows_html += f'<tr style="{row_style}">'
             rows_html += f'<td style="padding: 6px; border: 1px solid #999; border-left: 2px solid #666; {row_style}">{row["Customers"]}</td>'
 
-            for i, week in enumerate(weeks):
+            for i, period in enumerate(periods):
                 bg_color = '#E8E8E8' if i % 2 == 0 else '#FFFFFF'
                 if is_total:
                     bg_color = '#D9D9D9'
 
-                booked = int(row[f'{week}_Booked'])
-                rated = int(row[f'{week}_Rated'])
-                total = int(row[f'{week}_Total Quotes'])
-                pct = row[f'{week}_% Rated']
+                booked = int(row[f'{period}_Booked'])
+                rated = int(row[f'{period}_Rated'])
+                total = int(row[f'{period}_Total Quotes'])
+                pct = row[f'{period}_% Rated']
 
-                # First column of each week gets thick left border
+                # First column of each period gets thick left border
                 rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; border-left: 2px solid #666; text-align: right;">{booked:,}</td>'
                 rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: right;">{rated:,}</td>'
                 rows_html += f'<td style="background-color: {bg_color}; padding: 6px; border: 1px solid #999; text-align: right;">{total:,}</td>'
@@ -293,7 +320,7 @@ def main():
         </div>
         '''
 
-    st.markdown(build_customer_html_table(display_df, weeks), unsafe_allow_html=True)
+    st.markdown(build_customer_html_table(display_df, period_labels), unsafe_allow_html=True)
 
     # Download buttons for customer report
     st.divider()

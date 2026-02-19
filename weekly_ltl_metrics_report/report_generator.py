@@ -237,6 +237,122 @@ def generate_report(client: DriveClient, selected_weeks: list[dict] = None, num_
     return report_df, week_labels
 
 
+def get_month_from_week(week_num: int, year: int) -> tuple[int, int, str]:
+    """
+    Convert ISO week number to month.
+    Returns (year, month_num, label) e.g., (2025, 1, "Jan 2025")
+    """
+    from datetime import datetime
+    # Use the Thursday of the ISO week to determine the month
+    # (ISO weeks start on Monday, and Thursday determines which year the week belongs to)
+    date = datetime.strptime(f'{year}-W{week_num:02d}-4', "%G-W%V-%u")
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    return (date.year, date.month, f"{month_names[date.month-1]} {date.year}")
+
+
+def aggregate_weeks_to_months(week_folders: list[dict]) -> dict[str, list[dict]]:
+    """
+    Group week folders by month.
+    Returns dict mapping month_label -> list of week folder dicts
+    """
+    months = {}
+    for folder in week_folders:
+        year, month_num, month_label = get_month_from_week(folder['week'], folder['year'])
+        if month_label not in months:
+            months[month_label] = {'folders': [], 'year': year, 'month': month_num}
+        months[month_label]['folders'].append(folder)
+
+    # Sort by year and month
+    sorted_labels = sorted(months.keys(),
+                          key=lambda x: (months[x]['year'], months[x]['month']))
+    return {label: months[label]['folders'] for label in sorted_labels}
+
+
+def generate_monthly_report(client: DriveClient, selected_weeks: list[dict]) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Generate report aggregated by month instead of by week.
+    Used when more than 12 weeks are selected.
+    """
+    week_folders = selected_weeks
+
+    # Group weeks by month
+    months_dict = aggregate_weeks_to_months(week_folders)
+    month_labels = list(months_dict.keys())
+
+    print(f"\nGenerating MONTHLY report for {len(week_folders)} weeks grouped into {len(month_labels)} months")
+    print(f"Months: {month_labels}")
+
+    all_customers = set()
+    month_data = {}  # month_label -> {customer -> {booked, rated, total}}
+
+    # Load all week data first
+    for folder in week_folders:
+        print(f"\nProcessing {folder['name']}...")
+        df = load_csvs_from_folder(client, folder['id'], folder['name'])
+        stats = calculate_week_stats(df)
+
+        # Find which month this week belongs to
+        _, _, month_label = get_month_from_week(folder['week'], folder['year'])
+
+        if month_label not in month_data:
+            month_data[month_label] = {}
+
+        # Aggregate into month
+        for _, row in stats.iterrows():
+            customer = row['customer']
+            all_customers.add(customer)
+            if customer not in month_data[month_label]:
+                month_data[month_label][customer] = {'booked': 0, 'rated': 0, 'total': 0}
+            month_data[month_label][customer]['booked'] += int(row['booked'])
+            month_data[month_label][customer]['rated'] += int(row['rated'])
+            month_data[month_label][customer]['total'] += int(row['total_quotes'])
+
+    # Build report rows
+    report_rows = []
+    for customer in all_customers:
+        row = {'Customers': customer, '_total_volume': 0}
+
+        for month_label in month_labels:
+            cust_data = month_data.get(month_label, {}).get(customer, {'booked': 0, 'rated': 0, 'total': 0})
+            booked = cust_data['booked']
+            rated = cust_data['rated']
+            total = cust_data['total']
+            pct = (rated / total * 100) if total > 0 else 0.0
+
+            row[f'{month_label}_Booked'] = booked
+            row[f'{month_label}_Rated'] = rated
+            row[f'{month_label}_Total Quotes'] = total
+            row[f'{month_label}_% Rated'] = round(pct, 2)
+            row['_total_volume'] += total
+
+        report_rows.append(row)
+
+    report_df = pd.DataFrame(report_rows)
+
+    # Sort by total volume descending
+    report_df = report_df.sort_values('_total_volume', ascending=False)
+    report_df = report_df.drop(columns=['_total_volume'])
+
+    # Calculate TOTAL row
+    total_row = {'Customers': 'TOTAL'}
+    for month_label in month_labels:
+        total_row[f'{month_label}_Booked'] = report_df[f'{month_label}_Booked'].sum()
+        total_row[f'{month_label}_Rated'] = report_df[f'{month_label}_Rated'].sum()
+        total_row[f'{month_label}_Total Quotes'] = report_df[f'{month_label}_Total Quotes'].sum()
+        total_quotes = total_row[f'{month_label}_Total Quotes']
+        if total_quotes > 0:
+            total_row[f'{month_label}_% Rated'] = round(
+                total_row[f'{month_label}_Rated'] / total_quotes * 100, 2
+            )
+        else:
+            total_row[f'{month_label}_% Rated'] = 0.0
+
+    report_df = pd.concat([pd.DataFrame([total_row]), report_df], ignore_index=True)
+
+    return report_df, month_labels
+
+
 
 def save_to_excel(report_df: pd.DataFrame, weeks: list[int], filename: str):
     """Save report to Excel with formatting matching the screenshot."""
