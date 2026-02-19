@@ -162,70 +162,70 @@ def main():
     sorted_months = sorted(month_options.keys(),
                           key=lambda x: (int(x.split()[1]), month_names_order.index(x.split()[0])))
 
-    # Quick filter selection method
+    # Quick filter buttons
     st.sidebar.subheader("📅 Quick Filters")
-    filter_method = st.sidebar.radio(
-        "Select by:",
-        options=["Last N weeks", "Year", "Month"],
-        horizontal=True,
-        help="Choose how to quickly select weeks"
-    )
 
-    # Initialize session state
+    col1, col2, col3 = st.sidebar.columns(3)
+
+    with col1:
+        if st.button("Last 4 wks", use_container_width=True):
+            st.session_state.selected_weeks = week_labels[-4:] if len(week_labels) >= 4 else week_labels
+            st.rerun()
+
+    with col2:
+        if st.button("Last 12 wks", use_container_width=True):
+            st.session_state.selected_weeks = week_labels[-12:] if len(week_labels) >= 12 else week_labels
+            st.rerun()
+
+    with col3:
+        if st.button("Last 26 wks", use_container_width=True):
+            st.session_state.selected_weeks = week_labels[-26:] if len(week_labels) >= 26 else week_labels
+            st.rerun()
+
+    # Year and Month quick selectors
+    col_year, col_month = st.sidebar.columns(2)
+
+    with col_year:
+        selected_year = st.selectbox(
+            "Year:",
+            options=[""] + years_available,
+            index=0,
+            key="year_selector"
+        )
+        if selected_year and selected_year != "":
+            year_weeks = [w['label'] for w in available_weeks if w['year'] == selected_year]
+            if st.button(f"Select {selected_year}", use_container_width=True):
+                st.session_state.selected_weeks = year_weeks
+                st.rerun()
+
+    with col_month:
+        selected_month = st.selectbox(
+            "Month:",
+            options=[""] + sorted_months,
+            index=0,
+            key="month_selector"
+        )
+        if selected_month and selected_month != "":
+            month_weeks = month_options.get(selected_month, [])
+            if st.button(f"Select", use_container_width=True, key="select_month_btn"):
+                st.session_state.selected_weeks = month_weeks
+                st.rerun()
+
+    # Initialize session state with default
     if 'selected_weeks' not in st.session_state:
         st.session_state.selected_weeks = week_labels[-4:] if len(week_labels) >= 4 else week_labels
-    if 'last_filter_method' not in st.session_state:
-        st.session_state.last_filter_method = filter_method
-    if 'last_filter_value' not in st.session_state:
-        st.session_state.last_filter_value = None
 
-    quick_selection = []
-
-    if filter_method == "Last N weeks":
-        max_slider = min(len(week_labels), 52)
-        num_weeks_slider = st.sidebar.slider(
-            "Number of weeks:",
-            min_value=1,
-            max_value=max_slider,
-            value=min(4, max_slider),
-            help="Select the most recent N weeks"
-        )
-        quick_selection = week_labels[-num_weeks_slider:]
-        current_filter_value = f"slider_{num_weeks_slider}"
-
-    elif filter_method == "Year":
-        selected_year = st.sidebar.selectbox(
-            "Select year:",
-            options=years_available,
-            index=len(years_available) - 1,  # Default to most recent year
-            help="Select all weeks from a specific year"
-        )
-        quick_selection = [w['label'] for w in available_weeks if w['year'] == selected_year]
-        current_filter_value = f"year_{selected_year}"
-
-    elif filter_method == "Month":
-        selected_month = st.sidebar.selectbox(
-            "Select month:",
-            options=sorted_months,
-            index=len(sorted_months) - 1,  # Default to most recent month
-            help="Select all weeks from a specific month"
-        )
-        quick_selection = month_options.get(selected_month, [])
-        current_filter_value = f"month_{selected_month}"
-
-    # Update selection if filter method or value changed
-    if (st.session_state.last_filter_method != filter_method or
-        st.session_state.last_filter_value != current_filter_value):
-        st.session_state.last_filter_method = filter_method
-        st.session_state.last_filter_value = current_filter_value
-        st.session_state.selected_weeks = quick_selection
+    # Ensure selected weeks are valid (exist in available weeks)
+    valid_selection = [w for w in st.session_state.selected_weeks if w in week_labels]
+    if not valid_selection:
+        valid_selection = week_labels[-4:] if len(week_labels) >= 4 else week_labels
 
     # Multiselect for fine-tuning
-    st.sidebar.subheader("🔧 Fine-tune")
+    st.sidebar.subheader("🔧 Fine-tune Selection")
     selected_week_labels = st.sidebar.multiselect(
         "Selected weeks:",
         options=week_labels,
-        default=st.session_state.selected_weeks,
+        default=valid_selection,
         help="Add or remove specific weeks"
     )
 
