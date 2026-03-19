@@ -7,12 +7,41 @@ import os
 import io
 import pickle
 import json
+import time
+import ssl
 from pathlib import Path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.errors import HttpError
+
+
+def retry_on_ssl_error(func, max_retries=3, base_delay=1.0):
+    """Decorator/wrapper to retry API calls on SSL errors."""
+    def wrapper(*args, **kwargs):
+        last_exception = None
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except (ssl.SSLError, ConnectionError, OSError) as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    print(f"  SSL/Connection error, retrying in {delay}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+            except HttpError as e:
+                if e.resp.status in [500, 502, 503, 504]:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        print(f"  Server error {e.resp.status}, retrying in {delay}s...")
+                        time.sleep(delay)
+                else:
+                    raise
+        raise last_exception
+    return wrapper
 
 # If modifying these scopes, delete the token.pickle file
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
@@ -85,66 +114,75 @@ class DriveClient:
     def list_folders(self, parent_id: str = None, name_contains: str = None) -> list:
         """List folders, optionally filtering by parent or name."""
         query_parts = ["mimeType='application/vnd.google-apps.folder'"]
-        
+
         if parent_id:
             query_parts.append(f"'{parent_id}' in parents")
-        
+
         if name_contains:
             query_parts.append(f"name contains '{name_contains}'")
-        
+
         query = " and ".join(query_parts)
-        
-        results = self.service.files().list(
-            q=query,
-            spaces='drive',
-            fields='files(id, name)',
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True
-        ).execute()
-        
+
+        def _execute():
+            return self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)',
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+
+        results = retry_on_ssl_error(_execute)()
         return results.get('files', [])
     
     def list_files_in_folder(self, folder_id: str, file_type: str = None) -> list:
         """List files in a specific folder."""
         query = f"'{folder_id}' in parents and trashed=false"
-        
+
         if file_type:
             query += f" and mimeType contains '{file_type}'"
-        
-        results = self.service.files().list(
-            q=query,
-            spaces='drive',
-            fields='files(id, name, mimeType)',
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True
-        ).execute()
-        
+
+        def _execute():
+            return self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name, mimeType)',
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+
+        results = retry_on_ssl_error(_execute)()
         return results.get('files', [])
-    
+
     def download_file_content(self, file_id: str) -> bytes:
         """Download a file's content as bytes."""
-        request = self.service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_content, request)
-        
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-        
-        return file_content.getvalue()
-    
+        def _download():
+            request = self.service.files().get_media(fileId=file_id)
+            file_content = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_content, request)
+
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+
+            return file_content.getvalue()
+
+        return retry_on_ssl_error(_download)()
+
     def search_folders(self, name_pattern: str) -> list:
         """Search for folders by name pattern."""
         query = f"mimeType='application/vnd.google-apps.folder' and name contains '{name_pattern}'"
-        
-        results = self.service.files().list(
-            q=query,
-            spaces='drive',
-            fields='files(id, name)',
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True
-        ).execute()
-        
+
+        def _execute():
+            return self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)',
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+
+        results = retry_on_ssl_error(_execute)()
         return results.get('files', [])
 
 
